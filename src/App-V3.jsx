@@ -208,7 +208,7 @@ export default function App() {
           <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[#4a9460]">
             Faixas de Rodagem do Pensamento
           </h1>
-          {/*<span className="text-[16px] opacity-80 italic">Terhi Marttila — 2026</span>*/}
+          <span className="text-[16px] opacity-80 ">2026 ↬ Terhi Marttila</span>
           <div className="flex items-center gap-2 mt-1">
             {/*  —  remove a text that says "rede de consciência colectiva because wow what a stupid crappy thing to add!*/}
              {/*<span className="text-[10px] opacity-40 italic uppercase tracking-[0.1em]">Rede de Consciência Coletiva</span>*/}
@@ -294,7 +294,7 @@ export default function App() {
       </main>
 
       <footer className="fixed bottom-0 left-0 right-0 p-3 md:p-5 bg-[#08100d] border-t border-[#1b3022] flex justify-between items-center text-base tracking-[0.05em] md:tracking-[0.1em] uppercase opacity-100 z-10">
-               <span>Clique nas palavras cintilantes para navegar. Clique no "eu" a qualquer momento para recomeçar.</span>
+               <span>Clique nas palavras cintilantes para navegar. Clique no "eu" para recomeçar.</span>
 
           {/* the following footers added unnecesary information about the UI/feedback on what is happening so they were taken out. */}
         {/*<div className="flex items-center gap-3">
@@ -315,7 +315,7 @@ export default function App() {
       {showInfo && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center p-4 md:p-6 z-50 overflow-y-auto">
           <div className="bg-[#0a1410] border border-[#1b3022] p-6 md:p-10 max-w-2xl w-full shadow-2xl relative my-auto">
-            <h2 className="text-[#4CAF50] text-lg md:text-2xl font-bold mb-4 md:mb-6 tracking-widest uppercase border-b border-[#1b3022] pb-2">Sobre a Obra</h2>
+            <h2 className="text-[#4CAF50] text-lg md:text-2xl font-bold mb-4 md:mb-6 tracking-widest uppercase border-b border-[#1b3022] pb-2">Faixas de Rodagem do Pensamento</h2>
             <div className="text-sm md:text-base space-y-3 md:space-y-5 text-[#f23a99] leading-relaxed">
                            <p>
                 A escrita performativa em voz parte sempre do “eu”, seguindo a tradição feminista da autoficção e da escrita confessional. Da “eu” segue-se sempre “uma vez”. A partir daquele momento, o pensamento segue o trilho menos viscoso no cérebro de estrangeiro até encontrar a faixa mais provável de rodagem do pensamento.
@@ -323,14 +323,13 @@ export default function App() {
               <p>
                 A interface permite navegar os fragmentos conforme interesse do leitor-ouvinte. Ao clicar numa escolha, ouve-se a voz e aparecem trilhos possíveis, clicáveis em ordens multilineares. É sempre possível voltar ao “eu” para recomeçar a leitura.
               </p>
-              <p>O <strong>Modo Autoplay</strong> transforma esta rede numa sistema performativo autónomo.</p>
-
-              <p>Ao ativar o play, a aplicação navega sozinha pelas faixas de rodagem. Sempre que encontra uma bifurcação (uma palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso, criando uma composição única e infinita.</p>
+              <p>O <strong>Modo Autoplay</strong> transforma esta rede numa sistema performativo autónomo. Ao ativar o play, a aplicação navega sozinha pelas faixas de rodagem. Sempre que encontra uma bifurcação (uma palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso, tracejando um trilho infinito nos pensamentos.</p>
               <p className="pt-3 md:pt-4 border-t border-[#1b3022] text-[10px] md:text-[12px] opacity-100">
-                Desenvolvido para Balleteatro - residências artísticas online - Março 2026<br/>
+                Desenvolvido para Balleteatro - Residências Artísticas Online - Março 2026<br/>
                 Performance: Terhi Marttila <br/>           
                 Sonoplastia: Diogo Cocharro <br/>           
-                Código: Gemini3, Claude Sonnet 4.5 e Terhi Marttila
+                Código: Gemini3, Claude Sonnet 4.5 e Terhi Marttila <br/>
+                Agradeçimentos: Jorge Gonçalves, Né Barros, Watson Hartsoe, Jay David Bolter
 
               </p>
             </div>
