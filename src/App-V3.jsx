@@ -203,7 +203,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#060a08] text-[#8c1c40] font-sans selection:bg-[#4CAF50] selection:text-white flex flex-col overflow-hidden">
-      <header className="p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[#1b3022] bg-[#08100d] z-20 shadow-2xl">
+      <header className="fixed top-0 left-0 right-0 p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[#1b3022] bg-[#08100d] z-30 shadow-2xl">
         <div className="flex flex-col min-w-0 flex-1">
           <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[#4a9460]">
             Faixas de Rodagem do Pensamento
@@ -243,7 +243,7 @@ export default function App() {
         </div>
       </header>
 
-      <main ref={mainContainerRef} className="flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_#0a1410_0%,_#060a08_100%)] flex items-center justify-center p-4 md:p-12 pb-24">
+      <main ref={mainContainerRef} className="flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_#0a1410_0%,_#060a08_100%)] flex items-center justify-center p-4 md:p-12 pt-20 md:pt-24 pb-24">
         <div 
           className={`grid border-t border-l border-[#1b3022]/40 shadow-2xl bg-black/30 backdrop-blur-sm transition-opacity duration-1000 ${isAutoplay ? 'opacity-90' : 'opacity-100'}`}
           style={{ 
