@@ -5,8 +5,9 @@ README.md
 # Dependencies
 node_modules
 
-# Production build (keeping build, but removing dist for GitHub Pages)
+# Production build
 build
+dist
 
 # Logs
 npm-debug.log*

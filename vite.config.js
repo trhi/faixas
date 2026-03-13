@@ -10,7 +10,7 @@ export default defineConfig({
     open: true
   },
   build: {
-    outDir: 'dist',
+    outDir: 'docs',
     sourcemap: true
   }
 })
