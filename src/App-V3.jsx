@@ -313,10 +313,10 @@ export default function App() {
       
 
       {showInfo && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center p-6 z-50">
-          <div className="bg-[#0a1410] border border-[#1b3022] p-10 max-w-2xl shadow-2xl relative">
-            <h2 className="text-[#4CAF50] text-2xl font-bold mb-6 tracking-widest uppercase border-b border-[#1b3022] pb-2">Sobre a Obra</h2>
-            <div className="text-base space-y-5 text-[#f23a99] leading-relaxed">
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center p-4 md:p-6 z-50 overflow-y-auto">
+          <div className="bg-[#0a1410] border border-[#1b3022] p-6 md:p-10 max-w-2xl w-full shadow-2xl relative my-auto">
+            <h2 className="text-[#4CAF50] text-lg md:text-2xl font-bold mb-4 md:mb-6 tracking-widest uppercase border-b border-[#1b3022] pb-2">Sobre a Obra</h2>
+            <div className="text-sm md:text-base space-y-3 md:space-y-5 text-[#f23a99] leading-relaxed">
                            <p>
                 A escrita performativa em voz parte sempre do “eu”, seguindo a tradição feminista da autoficção e da escrita confessional. Da “eu” segue-se sempre “uma vez”. A partir daquele momento, o pensamento segue o trilho menos viscoso no cérebro de estrangeiro até encontrar a faixa mais provável de rodagem do pensamento.
               </p>
@@ -326,7 +326,7 @@ export default function App() {
               <p>O <strong>Modo Autoplay</strong> transforma esta rede numa sistema performativo autónomo.</p>
 
               <p>Ao ativar o play, a aplicação navega sozinha pelas faixas de rodagem. Sempre que encontra uma bifurcação (uma palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso, criando uma composição única e infinita.</p>
-              <p className="pt-4 border-t border-[#1b3022] text-[12px] opacity-100">
+              <p className="pt-3 md:pt-4 border-t border-[#1b3022] text-[10px] md:text-[12px] opacity-100">
                 Desenvolvido para Balleteatro - residências artísticas online - Março 2026<br/>
                 Performance: Terhi Marttila <br/>           
                 Sonoplastia: Diogo Cocharro <br/>           
@@ -334,7 +334,7 @@ export default function App() {
 
               </p>
             </div>
-            <button onClick={() => setShowInfo(false)} className="mt-10 w-full py-4 border border-[#4CAF50] text-[#4CAF50] hover:bg-[#4CAF50] hover:text-black transition-all font-bold uppercase text-xs tracking-[0.3em]">
+            <button onClick={() => setShowInfo(false)} className="mt-6 md:mt-10 w-full py-3 md:py-4 border border-[#4CAF50] text-[#4CAF50] hover:bg-[#4CAF50] hover:text-black transition-all font-bold uppercase text-xs tracking-[0.2em] md:tracking-[0.3em]">
               Fechar
             </button>
           </div>
