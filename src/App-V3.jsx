@@ -203,9 +203,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#060a08] text-[#8c1c40] font-sans selection:bg-[#4CAF50] selection:text-white flex flex-col overflow-hidden">
-      <header className="p-5 flex justify-between items-center border-b border-[#1b3022] bg-[#08100d] z-20 shadow-2xl">
-        <div className="flex flex-col">
-          <h1 className="text-sm md:text-lg font-bold tracking-[0.5em] uppercase text-[#4a9460]">
+      <header className="p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[#1b3022] bg-[#08100d] z-20 shadow-2xl">
+        <div className="flex flex-col min-w-0 flex-1">
+          <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[#4a9460]">
             Faixas de Rodagem do Pensamento
           </h1>
           {/*<span className="text-[16px] opacity-80 italic">Terhi Marttila — 2026</span>*/}
@@ -216,29 +216,29 @@ export default function App() {
           </div>
         </div>
         
-        <div className="flex gap-2 md:gap-3">
+        <div className="flex gap-1 md:gap-3 flex-shrink-0">
           <button 
             onClick={() => setIsAutoplay(!isAutoplay)} 
-            className={`p-3 rounded-full transition-all flex items-center gap-2 ${isAutoplay ? 'text-[#4CAF50] bg-[#112115] shadow-[0_0_15px_rgba(74,148,96,0.3)]' : 'text-gray-400 bg-black/40 hover:text-white'}`}
+            className={`p-2 md:p-3 rounded-full transition-all flex items-center gap-2 ${isAutoplay ? 'text-[#4CAF50] bg-[#112115] shadow-[0_0_15px_rgba(74,148,96,0.3)]' : 'text-gray-400 bg-black/40 hover:text-white'}`}
             title={isAutoplay ? "Pausar Autoplay" : "Iniciar Autoplay"}
           >
-            {isAutoplay ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+            {isAutoplay ? <Pause size={16} className="md:w-5 md:h-5" fill="currentColor" /> : <Play size={16} className="md:w-5 md:h-5" fill="currentColor" />}
           </button>
 
           <button 
             onClick={() => handleNodeClick('root')} 
-            className="p-3 bg-black/40 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors"
+            className="p-2 md:p-3 bg-black/40 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors"
             title="Reiniciar"
           >
-            <RotateCcw size={20} />
+            <RotateCcw size={16} className="md:w-5 md:h-5" />
           </button>
 
-          <button onClick={() => setAudioEnabled(!audioEnabled)} className={`p-3 rounded-full transition-all ${audioEnabled ? 'text-[#4CAF50] bg-[#112115]' : 'text-gray-600 bg-black'}`}>
-            {audioEnabled ? <Volume2 size={24} /> : <VolumeX size={24} />}
+          <button onClick={() => setAudioEnabled(!audioEnabled)} className={`p-2 md:p-3 rounded-full transition-all ${audioEnabled ? 'text-[#4CAF50] bg-[#112115]' : 'text-gray-600 bg-black'}`}>
+            {audioEnabled ? <Volume2 size={16} className="md:w-6 md:h-6" /> : <VolumeX size={16} className="md:w-6 md:h-6" />}
           </button>
           
-          <button onClick={() => setShowInfo(true)} className="p-3 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors">
-            <Info size={24} />
+          <button onClick={() => setShowInfo(true)} className="p-2 md:p-3 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors">
+            <Info size={16} className="md:w-6 md:h-6" />
           </button>
         </div>
       </header>
