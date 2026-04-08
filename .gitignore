@@ -1,6 +1,9 @@
 IGNORE/
 .DS_Store
 README.md
+data/
+
+.venv-audio310/
 
 # Dependencies
 node_modules
