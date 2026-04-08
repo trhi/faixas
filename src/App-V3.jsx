@@ -4,7 +4,12 @@ import { Info, Volume2, VolumeX, Play, Pause, RotateCcw } from 'lucide-react';
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
 
+function getDatasetBaseUrl() {
+  return new URL(DATASET_ROOT, window.location.href);
+}
+
 function buildSentenceData(manifestEntries) {
+  const datasetBaseUrl = getDatasetBaseUrl();
   const sortedEntries = [...manifestEntries].sort((a, b) => {
     if (a.recording_id !== b.recording_id) return a.recording_id.localeCompare(b.recording_id);
     if (a.sentence_id !== b.sentence_id) return a.sentence_id - b.sentence_id;
@@ -18,7 +23,7 @@ function buildSentenceData(manifestEntries) {
     const sentenceKey = `${entry.recording_id}::${entry.sentence_id}`;
     const fragmentWithAudio = {
       ...entry,
-      audioUrl: new URL(entry.file, window.location.origin + DATASET_ROOT).toString(),
+      audioUrl: new URL(entry.file, datasetBaseUrl).toString(),
     };
 
     if (!groupedSentences.has(sentenceKey)) {
@@ -197,7 +202,7 @@ export default function App() {
 
     async function loadDataset() {
       try {
-        const response = await fetch(`${DATASET_ROOT}manifest.json`);
+        const response = await fetch(new URL('manifest.json', getDatasetBaseUrl()));
         if (!response.ok) {
           throw new Error(`Nao foi possivel carregar a base de audio (${response.status}).`);
         }
