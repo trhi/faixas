@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Info, Volume2, VolumeX, Play, Pause, RotateCcw } from 'lucide-react';
 
 const MIN_GRID_SIZE = 15;
@@ -305,9 +305,16 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isAutoplay, setIsAutoplay] = useState(false);
+  const [scrollHints, setScrollHints] = useState({
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+  });
 
   const autoplayTimerRef = useRef(null);
   const mainContainerRef = useRef(null);
+  const rootCellRef = useRef(null);
   const activeAudioRef = useRef(new Set());
 
   useEffect(() => {
@@ -327,12 +334,48 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (mainContainerRef.current) {
-      const container = mainContainerRef.current;
-      container.scrollLeft = (container.scrollWidth - container.clientWidth) / 2;
-      container.scrollTop = (container.scrollHeight - container.clientHeight) / 2;
-    }
+  useLayoutEffect(() => {
+    const container = mainContainerRef.current;
+    const rootCell = rootCellRef.current;
+
+    if (!container || !rootCell) return;
+
+    const updateScrollHints = () => {
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const threshold = 12;
+
+      setScrollHints({
+        left: container.scrollLeft > threshold,
+        right: container.scrollLeft < maxScrollLeft - threshold,
+        up: container.scrollTop > threshold,
+        down: container.scrollTop < maxScrollTop - threshold,
+      });
+    };
+
+    const centerRootCell = () => {
+      rootCell.scrollIntoView({
+        block: 'center',
+        inline: 'center',
+        behavior: 'auto',
+      });
+      window.requestAnimationFrame(updateScrollHints);
+    };
+
+    const rafId = window.requestAnimationFrame(centerRootCell);
+    const timeoutId = window.setTimeout(centerRootCell, 250);
+
+    container.addEventListener('scroll', updateScrollHints, { passive: true });
+    window.addEventListener('resize', centerRootCell);
+    window.addEventListener('orientationchange', centerRootCell);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+      container.removeEventListener('scroll', updateScrollHints);
+      window.removeEventListener('resize', centerRootCell);
+      window.removeEventListener('orientationchange', centerRootCell);
+    };
   }, [grid]);
 
   useEffect(() => {
@@ -398,15 +441,23 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen bg-[var(--color-bg-main)] text-[var(--color-pink)] font-sans selection:bg-[var(--color-green-bright)] selection:text-white flex flex-col overflow-hidden"
+      className="h-[100dvh] w-full bg-[var(--color-bg-main)] text-[var(--color-pink)] font-sans selection:bg-[var(--color-green-bright)] selection:text-white flex flex-col overflow-hidden"
       style={paletteVars}
     >
-      <header className="fixed top-0 left-0 right-0 p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-panel)] z-30 shadow-2xl">
+      <header
+        className="fixed top-0 left-0 right-0 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 md:px-5 md:pt-5 md:pb-5 flex justify-between items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-panel)] z-30 shadow-2xl"
+      >
         <div className="flex flex-col min-w-0 flex-1">
           <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[var(--color-green-muted)]">
             Faixas de Rodagem do Pensamento
           </h1>
           <span className="text-[16px] opacity-80 ">2026 ✺ Terhi Marttila</span>
+          {!isAutoplay && (
+            <span className="text-[10px] italic uppercase tracking-[0.08em] text-[var(--color-green-muted)] opacity-80">
+              Clique nas faixas
+            </span>
+          )}
+
           <div className="flex items-center gap-2 mt-1">
             {isAutoplay && (
               <span className="text-[9px] bg-[var(--color-green-muted-soft)] text-[var(--color-green-muted)] px-2 py-0.5 rounded animate-pulse font-bold tracking-tighter">
@@ -465,21 +516,43 @@ export default function App() {
 
       <main
         ref={mainContainerRef}
-        className="flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_var(--color-bg-surface)_0%,_var(--color-bg-main)_100%)] flex items-center justify-center p-4 md:p-12 pt-20 md:pt-24 pb-24"
+        className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_var(--color-bg-surface)_0%,_var(--color-bg-main)_100%)] flex items-center justify-center p-4 md:p-12 pt-24 md:pt-28 pb-24 md:pb-28"
       >
         {(isDatasetLoading || datasetError) && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-4 py-2 border border-[var(--color-border)] bg-[var(--color-bg-panel-soft)] text-xs md:text-sm uppercase tracking-[0.15em] text-[var(--color-green-muted)]">
             {isDatasetLoading ? 'A carregar a base de audio...' : datasetError}
           </div>
         )}
+        {scrollHints.left && (
+          <div className="pointer-events-none sticky left-5 md:left-8 top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+            ←
+          </div>
+        )}
+        {scrollHints.right && (
+          <div className="pointer-events-none sticky left-[calc(100%-1.25rem)] md:left-[calc(100%-2rem)] top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+            →
+          </div>
+        )}
+        {scrollHints.up && (
+          <div className="pointer-events-none fixed top-24 md:top-32 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+            ↑
+          </div>
+        )}
+        {scrollHints.down && (
+          <div className="pointer-events-none fixed bottom-5 md:bottom-8 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+            ↓
+          </div>
+        )}
         <div
-          className={`grid border-t border-l border-[var(--color-border-soft)] shadow-2xl bg-black/30 backdrop-blur-sm transition-opacity duration-1000 ${
+          className={`grid transition-opacity duration-1000 ${
             isAutoplay ? 'opacity-90' : 'opacity-100'
           }`}
           style={{
             gridTemplateColumns: `repeat(${gridSize}, minmax(60px, 1fr))`,
+            gridTemplateRows: `repeat(${gridSize}, minmax(60px, 1fr))`,
             width: 'min(98vw, 1100px)',
             aspectRatio: '1/1',
+            gap: '4px',
           }}
         >
           {grid.map((row, y) =>
@@ -491,7 +564,7 @@ export default function App() {
               const isActive = activeId === nodeId;
 
               let cellClasses =
-                'border-b border-r border-[var(--color-border-faint)] flex items-center justify-center transition-all duration-500 relative text-center ';
+                'border border-[var(--color-border-faint)] rounded-full flex items-center justify-center transition-all duration-500 relative text-center ';
               let content = null;
 
               if (nodeId) {
@@ -522,13 +595,22 @@ export default function App() {
               return (
                 <div
                   key={`${x}-${y}`}
+                  ref={isRoot ? rootCellRef : null}
                   className={cellClasses}
                   onClick={() => !isAutoplay && nodeId && handleNodeClick(nodeId)}
                 >
+                  {nodeId && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-40 select-none pointer-events-none leading-none text-[5.6rem] md:text-[4.5rem]"
+                    >
+                      ✺
+                    </span>
+                  )}
                   {content && (
                     <span
-                      className={`leading-tight px-1 select-none transition-all ${
-                        isActive ? 'text-sm md:text-xl' : 'text-xs md:text-base'
+                      className={`relative z-10 leading-tight px-1 select-none transition-all ${
+                        isActive ? 'text-[19px] md:text-[27px]' : 'text-[17px] md:text-[23px]'
                       }`}
                     >
                       {content}
@@ -544,9 +626,12 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-3 md:p-5 bg-[var(--color-bg-panel)] border-t border-[var(--color-border)] flex justify-between items-center text-base tracking-[0.05em] md:tracking-[0.1em] uppercase opacity-100 z-10">
-        <span>Clique nas palavras cintilantes para navegar. Clique no "eu" para recomeçar.</span>
+      {/* Footer kept here for possible restoration later.
+      <footer className="fixed bottom-0 left-0 right-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:pt-5 md:pb-5 bg-[var(--color-bg-panel)] border-t border-[var(--color-border)] flex justify-between items-center text-base tracking-[0.05em] md:tracking-[0.1em] uppercase opacity-100 z-10">
+        <span>Clique nas faixas.</span>
       </footer>
+      */}
+
 
       {showInfo && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center p-4 md:p-6 z-50 overflow-y-auto">
@@ -556,28 +641,33 @@ export default function App() {
             </h2>
             <div className="text-sm md:text-base space-y-3 md:space-y-5 text-[var(--color-pink)] leading-relaxed">
               <p>
-                A escrita performativa em voz parte sempre do “eu”, seguindo a tradição feminista da autoficção e da
-                escrita confessional. Da “eu” segue-se sempre “uma vez”. A partir daquele momento, o pensamento segue
+                A escrita performativa em voz parte sempre do “eu, uma vez". A partir daquele momento, o pensamento segue
                 o trilho menos viscoso no cérebro de estrangeiro até encontrar a faixa mais provável de rodagem do
                 pensamento.
               </p>
               <p>
-                A interface permite navegar os fragmentos conforme interesse do leitor-ouvinte. Ao clicar numa
-                escolha, ouve-se a voz e aparecem trilhos possíveis, clicáveis em ordens multilineares. É sempre
-                possível voltar ao “eu” para recomeçar a leitura.
+                As faixas apresentadas aqui foram recolhidas ao longo de cerca de quatro semanas em Março-Abril no âmbito das residências artísticas online do Balleteatro.
               </p>
               <p>
-                O <strong>Modo Autoplay</strong> transforma esta rede numa sistema performativo autónomo. Ao ativar o
-                play, a aplicação navega sozinha pelas faixas de rodagem. Sempre que encontra uma bifurcação (uma
-                palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso, tracejando um trilho
+                A interface permite navegar as faixas conforme interesse do leitor-ouvinte. Ao clicar num fragmento, ouve-se a voz e aparecem as faixas possíveis, clicáveis em ordens multilineares. É sempre possível voltar ao “eu” para recomeçar a leitura.
+              </p>
+              <p>
+                O <strong>Modo Autoplay</strong> permite ceder a agência na escolha da faixa de rodagem ao acaso. Sempre que encontra uma bifurcação (uma
+                palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso e no final, repete ao partir do eu, tracejando um trilho
                 infinito nos pensamentos.
               </p>
               <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
-                Desenvolvido para Balleteatro - Residências Artísticas Online - Março 2026
+                Desenvolvido para{' '}
+                <a
+                  target="_blank"
+                  rel="noreferrer"
+                  href="https://bt.balleteatro.pt/Residencias-Artisticas-online/terhimarttila/"
+                  className="cursor-pointer underline decoration-[var(--color-green-bright)] decoration-2 underline-offset-2 text-[var(--color-green-bright)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-green-bright)]"
+                >
+                  Balleteatro - Residências Artísticas Online - Março 2026 - Terhi Marttila
+                </a>
                 <br />
-                Performance: Terhi Marttila
-                <br />
-                Sonoplastia: Diogo Cocharro
+                Música original por: Diogo Cocharro
                 <br />
                 Código: Gemini3, Claude Sonnet 4.5 e Terhi Marttila
                 <br />
