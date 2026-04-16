@@ -3,6 +3,42 @@ import { Info, Volume2, VolumeX, Play, Pause, RotateCcw } from 'lucide-react';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
+const APP_PALETTE_OLD = {
+  bgMain: '#060a08',
+  bgPanel: '#08100d',
+  bgPanelSoft: 'rgba(8, 16, 13, 0.95)',
+  bgSurface: '#0a1410',
+  bgAccent: '#112115',
+  border: '#1b3022',
+  borderHover: 'rgba(26, 48, 34, 0.6)',
+  greenMuted: '#4a9460',
+  greenMutedSoft: 'rgba(74, 148, 96, 0.2)',
+  greenBright: '#4CAF50',
+  greenGlowSoft: 'rgba(74, 148, 96, 0.3)',
+  greenGlowStrong: 'rgba(76, 175, 80, 0.4)',
+  maroon: '#8c1c40',
+  pink: '#f23a99',
+};
+const APP_PALETTE = {
+  bgMain: '#060a08',
+  bgPanel: '#08100d',
+  bgPanelSoft: 'rgba(8, 16, 13, 0.95)',
+  bgSurface: '#0a1410',
+  bgAccent: '#112115',
+  border: '#1b3022',
+  borderSoft: 'rgba(27, 48, 34, 0.4)',
+  borderFaint: 'rgba(27, 48, 34, 0.3)',
+  borderHover: 'rgba(26, 48, 34, 0.6)',
+  greenMuted: '#48FFC2',
+  greenMutedSoft: 'rgba(74, 148, 96, 0.2)',
+  greenBright: '#48FFC2',
+  greenGlowSoft: '#48FFC2',
+  greenGlowStrong: '#48FFC2',
+  maroon: '#9C0072',
+  pink: '#FF0CBA',
+  euBg: '#080006',
+  euColor: '#FF0CBA',
+};
 
 function getDatasetBaseUrl() {
   return new URL(DATASET_ROOT, window.location.href);
@@ -242,6 +278,26 @@ export default function App() {
     return buildGraph(sequences, variantsByText);
   }, [manifestEntries, sequences, variantsByText]);
   const { nodes, grid, rootId, center, gridSize } = graph;
+  const paletteVars = {
+    '--color-bg-main': APP_PALETTE.bgMain,
+    '--color-bg-panel': APP_PALETTE.bgPanel,
+    '--color-bg-panel-soft': APP_PALETTE.bgPanelSoft,
+    '--color-bg-surface': APP_PALETTE.bgSurface,
+    '--color-bg-accent': APP_PALETTE.bgAccent,
+    '--color-border': APP_PALETTE.border,
+    '--color-border-soft': APP_PALETTE.borderSoft,
+    '--color-border-faint': APP_PALETTE.borderFaint,
+    '--color-border-hover': APP_PALETTE.borderHover,
+    '--color-green-muted': APP_PALETTE.greenMuted,
+    '--color-green-muted-soft': APP_PALETTE.greenMutedSoft,
+    '--color-green-bright': APP_PALETTE.greenBright,
+    '--color-green-glow-soft': APP_PALETTE.greenGlowSoft,
+    '--color-green-glow-strong': APP_PALETTE.greenGlowStrong,
+    '--color-maroon': APP_PALETTE.maroon,
+    '--color-pink': APP_PALETTE.pink,
+    '--color-eu-bg': APP_PALETTE.euBg,
+    '--color-eu-color': APP_PALETTE.euColor,
+  };
 
   const [revealedIds, setRevealedIds] = useState(() => new Set([rootId]));
   const [clickableIds, setClickableIds] = useState(() => new Set(nodes[rootId]?.next ?? []));
@@ -341,16 +397,19 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#060a08] text-[#8c1c40] font-sans selection:bg-[#4CAF50] selection:text-white flex flex-col overflow-hidden">
-      <header className="fixed top-0 left-0 right-0 p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[#1b3022] bg-[#08100d] z-30 shadow-2xl">
+    <div
+      className="min-h-screen bg-[var(--color-bg-main)] text-[var(--color-pink)] font-sans selection:bg-[var(--color-green-bright)] selection:text-white flex flex-col overflow-hidden"
+      style={paletteVars}
+    >
+      <header className="fixed top-0 left-0 right-0 p-2 md:p-5 flex justify-between items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-panel)] z-30 shadow-2xl">
         <div className="flex flex-col min-w-0 flex-1">
-          <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[#4a9460]">
+          <h1 className="text-[10px] md:text-lg font-bold tracking-[0.1em] md:tracking-[0.3em] uppercase text-[var(--color-green-muted)]">
             Faixas de Rodagem do Pensamento
           </h1>
-          <span className="text-[16px] opacity-80 ">2026 ↬ Terhi Marttila</span>
+          <span className="text-[16px] opacity-80 ">2026 ✺ Terhi Marttila</span>
           <div className="flex items-center gap-2 mt-1">
             {isAutoplay && (
-              <span className="text-[9px] bg-[#4a9460]/20 text-[#4a9460] px-2 py-0.5 rounded animate-pulse font-bold tracking-tighter">
+              <span className="text-[9px] bg-[var(--color-green-muted-soft)] text-[var(--color-green-muted)] px-2 py-0.5 rounded animate-pulse font-bold tracking-tighter">
                 MODO AUTOPLAY
               </span>
             )}
@@ -362,7 +421,7 @@ export default function App() {
             onClick={() => setIsAutoplay(!isAutoplay)}
             className={`p-2 md:p-3 rounded-full transition-all flex items-center gap-2 ${
               isAutoplay
-                ? 'text-[#4CAF50] bg-[#112115] shadow-[0_0_15px_rgba(74,148,96,0.3)]'
+                ? 'text-[var(--color-green-bright)] bg-[var(--color-bg-accent)] shadow-[0_0_15px_var(--color-green-glow-soft)]'
                 : 'text-gray-400 bg-black/40 hover:text-white'
             }`}
             title={isAutoplay ? 'Pausar Autoplay' : 'Iniciar Autoplay'}
@@ -376,7 +435,7 @@ export default function App() {
 
           <button
             onClick={() => handleNodeClick(rootId)}
-            className="p-2 md:p-3 bg-black/40 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors"
+            className="p-2 md:p-3 bg-black/40 hover:bg-[var(--color-border)] rounded-full text-[var(--color-green-muted)] transition-colors"
             title="Reiniciar"
           >
             <RotateCcw size={16} className="md:w-5 md:h-5" />
@@ -385,7 +444,7 @@ export default function App() {
           <button
             onClick={() => setAudioEnabled(!audioEnabled)}
             className={`p-2 md:p-3 rounded-full transition-all ${
-              audioEnabled ? 'text-[#4CAF50] bg-[#112115]' : 'text-gray-600 bg-black'
+              audioEnabled ? 'text-[var(--color-green-bright)] bg-[var(--color-bg-accent)]' : 'text-gray-600 bg-black'
             }`}
           >
             {audioEnabled ? (
@@ -397,7 +456,7 @@ export default function App() {
 
           <button
             onClick={() => setShowInfo(true)}
-            className="p-2 md:p-3 hover:bg-[#1b3022] rounded-full text-[#4a9460] transition-colors"
+            className="p-2 md:p-3 hover:bg-[var(--color-border)] rounded-full text-[var(--color-green-muted)] transition-colors"
           >
             <Info size={16} className="md:w-6 md:h-6" />
           </button>
@@ -406,15 +465,15 @@ export default function App() {
 
       <main
         ref={mainContainerRef}
-        className="flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_#0a1410_0%,_#060a08_100%)] flex items-center justify-center p-4 md:p-12 pt-20 md:pt-24 pb-24"
+        className="flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_var(--color-bg-surface)_0%,_var(--color-bg-main)_100%)] flex items-center justify-center p-4 md:p-12 pt-20 md:pt-24 pb-24"
       >
         {(isDatasetLoading || datasetError) && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-4 py-2 border border-[#1b3022] bg-[#08100d]/95 text-xs md:text-sm uppercase tracking-[0.15em] text-[#4a9460]">
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-4 py-2 border border-[var(--color-border)] bg-[var(--color-bg-panel-soft)] text-xs md:text-sm uppercase tracking-[0.15em] text-[var(--color-green-muted)]">
             {isDatasetLoading ? 'A carregar a base de audio...' : datasetError}
           </div>
         )}
         <div
-          className={`grid border-t border-l border-[#1b3022]/40 shadow-2xl bg-black/30 backdrop-blur-sm transition-opacity duration-1000 ${
+          className={`grid border-t border-l border-[var(--color-border-soft)] shadow-2xl bg-black/30 backdrop-blur-sm transition-opacity duration-1000 ${
             isAutoplay ? 'opacity-90' : 'opacity-100'
           }`}
           style={{
@@ -432,23 +491,30 @@ export default function App() {
               const isActive = activeId === nodeId;
 
               let cellClasses =
-                'border-b border-r border-[#1b3022]/30 flex items-center justify-center transition-all duration-500 relative text-center ';
+                'border-b border-r border-[var(--color-border-faint)] flex items-center justify-center transition-all duration-500 relative text-center ';
               let content = null;
 
               if (nodeId) {
-                if (isActive) {
+                if (isRoot && isActive) {
                   cellClasses +=
-                    'bg-[#112115] z-10 scale-110 shadow-[0_0_40px_rgba(76,175,80,0.4)] text-[#4CAF50] font-black';
+                    'bg-[var(--color-eu-bg)] z-10 scale-110 shadow-[0_0_40px_var(--color-eu-bg)] text-[var(--color-eu-color)] font-black cursor-pointer';
+                  content = node.text;
+                } else if (isActive) {
+                  cellClasses +=
+                    'bg-[var(--color-bg-accent)] z-10 scale-110 shadow-[0_0_40px_var(--color-green-glow-strong)] text-[var(--color-green-bright)] font-black';
+                  content = node.text;
+                } else if (isRoot) {
+                  cellClasses += 'bg-[var(--color-eu-bg)] text-[var(--color-eu-color)] font-medium cursor-pointer';
                   content = node.text;
                 } else if (isClickable) {
-                  cellClasses += 'cursor-pointer hover:bg-[#1a3022]/60 text-[#8c1c40] font-semibold';
+                  cellClasses += 'cursor-pointer hover:bg-[var(--color-border-hover)] text-[var(--color-maroon)] font-semibold';
                   content = (
                     <span className={`scale-105 inline-block ${isAutoplay ? 'opacity-60' : 'animate-pulse'}`}>
                       {node.text}
                     </span>
                   );
-                } else if (isRevealed || isRoot) {
-                  cellClasses += 'opacity-40 text-[#8c1c40] cursor-pointer hover:opacity-100 font-medium';
+                } else if (isRevealed) {
+                  cellClasses += 'opacity-40 text-[var(--color-maroon)] cursor-pointer hover:opacity-100 font-medium';
                   content = node.text;
                 }
               }
@@ -468,8 +534,8 @@ export default function App() {
                       {content}
                     </span>
                   )}
-                  {isClickable && clickableIds.size > 1 && (
-                    <div className="absolute top-0 right-0 w-2 h-2 bg-[#4CAF50] rounded-full m-1 shadow-[0_0_8px_#4CAF50]" />
+                  {isClickable && (
+                    <div className="absolute top-0 right-0 w-2 h-2 bg-[var(--color-green-bright)] rounded-full m-1 shadow-[0_0_8px_var(--color-green-bright)]" />
                   )}
                 </div>
               );
@@ -478,17 +544,17 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-3 md:p-5 bg-[#08100d] border-t border-[#1b3022] flex justify-between items-center text-base tracking-[0.05em] md:tracking-[0.1em] uppercase opacity-100 z-10">
+      <footer className="fixed bottom-0 left-0 right-0 p-3 md:p-5 bg-[var(--color-bg-panel)] border-t border-[var(--color-border)] flex justify-between items-center text-base tracking-[0.05em] md:tracking-[0.1em] uppercase opacity-100 z-10">
         <span>Clique nas palavras cintilantes para navegar. Clique no "eu" para recomeçar.</span>
       </footer>
 
       {showInfo && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center p-4 md:p-6 z-50 overflow-y-auto">
-          <div className="bg-[#0a1410] border border-[#1b3022] p-6 md:p-10 max-w-2xl w-full shadow-2xl relative my-auto">
-            <h2 className="text-[#4CAF50] text-lg md:text-2xl font-bold mb-4 md:mb-6 tracking-widest uppercase border-b border-[#1b3022] pb-2">
+          <div className="bg-[var(--color-bg-surface)] border border-[var(--color-border)] p-6 md:p-10 max-w-2xl w-full shadow-2xl relative my-auto">
+            <h2 className="text-[var(--color-green-bright)] text-lg md:text-2xl font-bold mb-4 md:mb-6 tracking-widest uppercase border-b border-[var(--color-border)] pb-2">
               Faixas de Rodagem do Pensamento
             </h2>
-            <div className="text-sm md:text-base space-y-3 md:space-y-5 text-[#f23a99] leading-relaxed">
+            <div className="text-sm md:text-base space-y-3 md:space-y-5 text-[var(--color-pink)] leading-relaxed">
               <p>
                 A escrita performativa em voz parte sempre do “eu”, seguindo a tradição feminista da autoficção e da
                 escrita confessional. Da “eu” segue-se sempre “uma vez”. A partir daquele momento, o pensamento segue
@@ -506,7 +572,7 @@ export default function App() {
                 palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso, tracejando um trilho
                 infinito nos pensamentos.
               </p>
-              <p className="pt-3 md:pt-4 border-t border-[#1b3022] text-[10px] md:text-[12px] opacity-100">
+              <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
                 Desenvolvido para Balleteatro - Residências Artísticas Online - Março 2026
                 <br />
                 Performance: Terhi Marttila
@@ -520,7 +586,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setShowInfo(false)}
-              className="mt-6 md:mt-10 w-full py-3 md:py-4 border border-[#4CAF50] text-[#4CAF50] hover:bg-[#4CAF50] hover:text-black transition-all font-bold uppercase text-xs tracking-[0.2em] md:tracking-[0.3em]"
+              className="mt-6 md:mt-10 w-full py-3 md:py-4 border border-[var(--color-green-bright)] text-[var(--color-green-bright)] hover:bg-[var(--color-green-bright)] hover:text-black transition-all font-bold uppercase text-xs tracking-[0.2em] md:tracking-[0.3em]"
             >
               Fechar
             </button>
