@@ -4,9 +4,10 @@ import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
+const RNBO_PATCH_PATH = `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`;
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
-const ENABLE_TRAVERSAL_CACHE = true;
+const ENABLE_TRAVERSAL_CACHE = false;
 const ZINE_PDF_STYLES = {
   ZINE_V1: 'zine-v1',
   ZINE_V2: 'zine-v2',
@@ -79,6 +80,29 @@ const pdfFontBinaryCache = new Map();
  * Smoothly scrolls a container to (targetLeft, targetTop) with a cubic ease-in-out curve.
  * Returns a cancel function that stops the animation mid-flight.
  */
+/**
+ * Trigger a short triangle-wave blip for an incoming MIDI note-on.
+ */
+function playBlip(ctx, midiNote, velocity) {
+  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, now);
+  // Slight pitch drift downward for a more organic drone feel
+  osc.frequency.linearRampToValueAtTime(freq * 0.97, now + 6);
+  const amp = (velocity / 127) * 0.075;
+  // Quick attack, very long decay
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(amp, now + 0.08);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 8);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 8.1);
+}
+
 function smoothScrollTo(container, targetLeft, targetTop, duration = 600) {
   const startLeft = container.scrollLeft;
   const startTop = container.scrollTop;
@@ -897,6 +921,148 @@ export default function App() {
   const activeAudioRef = useRef(new Set());
   const nodeRefsMap = useRef(new Map());
   const headerRef = useRef(null);
+  const rnboApiRef = useRef(null); // RNBO runtime handles and cleanup refs
+  const rnboInitializedRef = useRef(false);
+
+  // Initialize RNBO soundscape on first user interaction.
+  useEffect(() => {
+    const initRNBO = async () => {
+      if (rnboInitializedRef.current) return;
+      rnboInitializedRef.current = true;
+      try {
+        const {
+          createDevice,
+          BeatTimeEvent,
+          MessageEvent,
+          TransportEvent,
+          TransportState,
+          TempoEvent,
+          TimeNow,
+        } = await import('@rnbo/js');
+
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === 'suspended') await ctx.resume();
+
+        const resp = await fetch(RNBO_PATCH_PATH);
+        const patchJSON = await resp.json();
+        const device = await createDevice({ context: ctx, patcher: patchJSON });
+
+        // Connect to destination (may be a no-op for 0-channel node but doesn't hurt).
+        try {
+          device.node.connect(ctx.destination);
+        } catch (_) {
+          // no-op
+        }
+
+        let lastMidiAt = performance.now();
+
+        // Convert MIDI note-ons to browser drone sounds.
+        device.midiEvent.subscribe((ev) => {
+          if ((ev.status & 0xf0) === 0x90 && ev.data[2] > 0) {
+            lastMidiAt = performance.now();
+            playBlip(ctx, ev.data[1], ev.data[2]);
+          }
+        });
+
+        const tempoBpm = 120;
+        device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
+        device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
+        device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
+
+        // Some MIDI-only RNBO patches need external beat updates in browser contexts.
+        const beatClockStart = performance.now();
+        const beatTimer = window.setInterval(() => {
+          const elapsedMinutes = (performance.now() - beatClockStart) / 60000;
+          const beatTime = elapsedMinutes * tempoBpm;
+          device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
+        }, 100);
+
+        // Optional kick message for RNBO control inlet.
+        device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
+
+        // Idle fallback: if RNBO outputs no MIDI for a while, poke control/event inlets
+        // at random intervals so the ambient layer keeps moving without user clicks.
+        const scheduleIdleTrigger = () => {
+          const nextDelay = 1800 + Math.random() * 2600;
+          return window.setTimeout(() => {
+            const now = performance.now();
+            const idleMs = now - lastMidiAt;
+            if (idleMs > 3500) {
+              device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
+              device.scheduleEvent(new MessageEvent(TimeNow, 'in1', undefined));
+            }
+            idleTimer = scheduleIdleTrigger();
+          }, nextDelay);
+        };
+        let idleTimer = scheduleIdleTrigger();
+
+        // Keep AudioContext active with a silent oscillator in the graph.
+        const keepAlive = ctx.createGain();
+        keepAlive.gain.value = 0;
+        keepAlive.connect(ctx.destination);
+        const silentOsc = ctx.createOscillator();
+        silentOsc.connect(keepAlive);
+        silentOsc.start();
+
+        rnboApiRef.current = {
+          device,
+          MessageEvent,
+          TimeNow,
+          ctx,
+          keepAlive,
+          silentOsc,
+          beatTimer,
+          idleTimer,
+        };
+      } catch (err) {
+        console.error('[RNBO] init failed:', err);
+        rnboInitializedRef.current = false;
+      }
+    };
+
+    window.addEventListener('pointerdown', initRNBO);
+    return () => {
+      window.removeEventListener('pointerdown', initRNBO);
+      const api = rnboApiRef.current;
+      if (api?.beatTimer) {
+        window.clearInterval(api.beatTimer);
+      }
+      if (api?.idleTimer) {
+        window.clearTimeout(api.idleTimer);
+      }
+      if (api?.silentOsc) {
+        try {
+          api.silentOsc.stop();
+          api.silentOsc.disconnect();
+        } catch (_) {
+          // no-op
+        }
+      }
+      if (api?.keepAlive) {
+        try {
+          api.keepAlive.disconnect();
+        } catch (_) {
+          // no-op
+        }
+      }
+      if (api?.device) {
+        try {
+          api.device.destroy();
+        } catch (_) {
+          // no-op
+        }
+      }
+      if (api?.ctx) {
+        try {
+          api.ctx.close();
+        } catch (_) {
+          // no-op
+        }
+      }
+      rnboApiRef.current = null;
+      rnboInitializedRef.current = false;
+    };
+  }, []);
 
   const appendFragmentToTraversalRecord = (fragmentText) => {
     const normalizedText = String(fragmentText ?? '').trim();
@@ -1111,10 +1277,18 @@ export default function App() {
     }
   }, [activeId]);
 
+  const sendRNBOBang = () => {
+    const api = rnboApiRef.current;
+    if (!api) return;
+    api.device.scheduleEvent(new api.MessageEvent(api.TimeNow, 'in1', undefined));
+  };
+
   const handleNodeClick = (id, options = {}) => {
     const { recordTraversal = false } = options;
     const node = nodes[id];
     if (!node) return;
+
+    sendRNBOBang();
 
     if (id === rootId) {
       setActiveId(rootId);
