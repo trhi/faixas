@@ -1,8 +1,41 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Info, Volume2, VolumeX, Play, Pause, RotateCcw } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
+const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
+const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
+const ENABLE_TRAVERSAL_CACHE = true;
+const ZINE_PDF_STYLES = {
+  ZINE_V1: 'zine-v1',
+  ZINE_V2: 'zine-v2',
+  ZINE_V2_LORA: 'zine-v2-lora',
+  RANDOM: 'random',
+};
+const AVAILABLE_ZINE_PDF_STYLES = [
+  ZINE_PDF_STYLES.ZINE_V1,
+  ZINE_PDF_STYLES.ZINE_V2,
+  ZINE_PDF_STYLES.ZINE_V2_LORA,
+];
+const ACTIVE_ZINE_PDF_STYLE = ZINE_PDF_STYLES.ZINE_V2_LORA;
+const ENABLE_ZINE_GRID_DEBUG_LABELS = false;
+const ZINE_LORA_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-wght.ttf`;
+const ZINE_LORA_FONT_VFS_NAME = 'Lora-wght.ttf';
+const ZINE_LORA_ITALIC_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-Italic-wght.ttf`;
+const ZINE_LORA_ITALIC_FONT_VFS_NAME = 'Lora-Italic-wght.ttf';
+const ZINE_LORA_FONT_FAMILY = 'Lora';
+const CURRENT_DD_MM_YYYY = (() => {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(now.getFullYear());
+  return `${dd}·${mm}·${yyyy}`;
+})();
+const ZINE_FRONT_COVER_LINES = ['Faixas de', 'Rodagem do', 'Pensamento'];
+const ZINE_BACK_COVER_LINES = ['2026 —', 'Terhi Marttila', `— e Tu, ${CURRENT_DD_MM_YYYY}`];
+const ZINE_PASTE_BACK_COVER_TEXT = ['[colar no verso', 'da contracapa]'];
+const ZINE_PASTE_FRONT_COVER_TEXT = ['[colar no verso', '— — — da capa]'];
 const APP_PALETTE_OLD = {
   bgMain: '#060a08',
   bgPanel: '#08100d',
@@ -39,6 +72,71 @@ const APP_PALETTE = {
   euBg: '#080006',
   euColor: '#FF0CBA',
 };
+
+const pdfFontBinaryCache = new Map();
+
+/**
+ * Smoothly scrolls a container to (targetLeft, targetTop) with a cubic ease-in-out curve.
+ * Returns a cancel function that stops the animation mid-flight.
+ */
+function smoothScrollTo(container, targetLeft, targetTop, duration = 600) {
+  const startLeft = container.scrollLeft;
+  const startTop = container.scrollTop;
+  const deltaLeft = targetLeft - startLeft;
+  const deltaTop = targetTop - startTop;
+  const startTime = performance.now();
+  let rafId;
+
+  function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function step(now) {
+    const elapsed = now - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    const e = easeInOutCubic(t);
+    container.scrollLeft = startLeft + deltaLeft * e;
+    container.scrollTop = startTop + deltaTop * e;
+    if (t < 1) rafId = requestAnimationFrame(step);
+  }
+
+  rafId = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(rafId);
+}
+
+function arrayBufferToBinaryString(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return binary;
+}
+
+async function getPdfFontBinary(url) {
+  if (pdfFontBinaryCache.has(url)) {
+    return pdfFontBinaryCache.get(url);
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Unable to load PDF font from ${url} (${response.status})`);
+  }
+
+  const binary = arrayBufferToBinaryString(await response.arrayBuffer());
+  pdfFontBinaryCache.set(url, binary);
+  return binary;
+}
+
+async function registerPdfFont(pdf, { url, vfsFileName, fontFamily, fontStyle = 'normal' }) {
+  const binary = await getPdfFontBinary(url);
+  pdf.addFileToVFS(vfsFileName, binary);
+  pdf.addFont(vfsFileName, fontFamily, fontStyle);
+}
 
 function getDatasetBaseUrl() {
   return new URL(DATASET_ROOT, window.location.href);
@@ -105,6 +203,486 @@ function createEmptyGraph() {
     center,
     gridSize: MIN_GRID_SIZE,
   };
+}
+
+function createSessionId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isEuFragment(fragmentText) {
+  return /^eu\b/i.test(fragmentText.trim());
+}
+
+function buildPdfTextFromFragments(fragments) {
+  const lines = [];
+
+  for (const rawFragment of fragments) {
+    const fragment = String(rawFragment ?? '').trim();
+    if (!fragment) continue;
+
+    if (isEuFragment(fragment) && lines.length > 0) {
+      lines.push('');
+    }
+
+    lines.push(fragment);
+  }
+
+  return lines.join('\n');
+}
+
+function createEmptyTraversalRecord() {
+  const now = new Date().toISOString();
+  return {
+    fileName: USER_TRAVERSAL_STORAGE_KEY,
+    schemaVersion: 1,
+    sessionId: createSessionId(),
+    createdAt: now,
+    updatedAt: now,
+    fragments: [],
+    pdfText: '',
+  };
+}
+
+function normalizeTraversalRecord(candidate) {
+  const fallback = createEmptyTraversalRecord();
+
+  if (!candidate || typeof candidate !== 'object') {
+    return fallback;
+  }
+
+  const fragments = Array.isArray(candidate.fragments)
+    ? candidate.fragments.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : [];
+
+  const createdAt = typeof candidate.createdAt === 'string' ? candidate.createdAt : fallback.createdAt;
+  const updatedAt = typeof candidate.updatedAt === 'string' ? candidate.updatedAt : createdAt;
+
+  return {
+    fileName:
+      typeof candidate.fileName === 'string' && candidate.fileName.trim()
+        ? candidate.fileName
+        : USER_TRAVERSAL_STORAGE_KEY,
+    schemaVersion: 1,
+    sessionId:
+      typeof candidate.sessionId === 'string' && candidate.sessionId.trim()
+        ? candidate.sessionId
+        : fallback.sessionId,
+    createdAt,
+    updatedAt,
+    fragments,
+    pdfText: buildPdfTextFromFragments(fragments),
+  };
+}
+
+function loadTraversalRecordFromSession() {
+  if (!ENABLE_TRAVERSAL_CACHE || typeof window === 'undefined') return createEmptyTraversalRecord();
+
+  try {
+    const serialized = window.sessionStorage.getItem(USER_TRAVERSAL_STORAGE_KEY);
+    if (!serialized) {
+      return createEmptyTraversalRecord();
+    }
+
+    return normalizeTraversalRecord(JSON.parse(serialized));
+  } catch {
+    return createEmptyTraversalRecord();
+  }
+}
+
+function persistTraversalRecord(record) {
+  if (!ENABLE_TRAVERSAL_CACHE || typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(USER_TRAVERSAL_STORAGE_KEY, JSON.stringify(record));
+  } catch {
+    // Ignore quota/privacy errors and keep in-memory tracking working.
+  }
+}
+
+// Stable fallback generator: keep this strategy available while testing new zine styles.
+function generateZinePdfV1(sourceText, fileName) {
+  const pdf = new jsPDF({
+    orientation: 'landscape',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const marginX = 40;
+  const marginTop = 56;
+  const marginBottom = 56;
+  const columnCount = 5;
+  const columnGap = 24;
+  const columnWidth = (pageWidth - marginX * 2 - columnGap * (columnCount - 1)) / columnCount;
+  const maxY = pageHeight - marginBottom;
+  const baseLineHeight = 18;
+
+  pdf.setFont('times', 'normal');
+  pdf.setFontSize(13);
+
+  let currentColumn = 0;
+  let cursorY = marginTop;
+  const lines = sourceText.split('\n');
+
+  const getColumnX = () => marginX + currentColumn * (columnWidth + columnGap);
+
+  const advanceColumn = () => {
+    currentColumn += 1;
+
+    if (currentColumn >= columnCount) {
+      pdf.addPage();
+      currentColumn = 0;
+    }
+
+    cursorY = marginTop;
+  };
+
+  const ensureSpace = (requiredLines = 1) => {
+    const requiredHeight = baseLineHeight * Math.max(requiredLines - 1, 0);
+    if (cursorY + requiredHeight > maxY) {
+      advanceColumn();
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      ensureSpace(1);
+      cursorY += baseLineHeight;
+    } else {
+      const wrapped = pdf.splitTextToSize(line, columnWidth);
+
+      ensureSpace(wrapped.length);
+
+      for (const wrappedLine of wrapped) {
+        pdf.text(wrappedLine, getColumnX(), cursorY);
+        cursorY += baseLineHeight;
+      }
+
+      if (cursorY > maxY) {
+        advanceColumn();
+      }
+    }
+  }
+
+  pdf.save(fileName);
+}
+
+async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
+  const {
+    bodyFontFamily = 'times',
+    coverFontFamily = bodyFontFamily,
+    backCoverFontFamily = coverFontFamily,
+    pasteFontFamily = coverFontFamily,
+    debugFontFamily = 'helvetica',
+    setupPdf,
+  } = options;
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  if (setupPdf) {
+    await setupPdf(pdf);
+  }
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const cellWidth = pageWidth / 4;
+  const cellHeight = pageHeight / 4;
+  const cellPadding = 14;
+  const fontSize = 10;
+  const lineHeight = 13;
+
+  const slotByPageNumber = {
+    1: { row: 3, col: 2, rotate180: false },
+    2: { row: 3, col: 3, rotate180: false },
+    3: { row: 2, col: 3, rotate180: true },
+    4: { row: 2, col: 2, rotate180: true },
+    5: { row: 2, col: 1, rotate180: true },
+    6: { row: 2, col: 0, rotate180: true },
+    7: { row: 1, col: 0, rotate180: false },
+    8: { row: 1, col: 1, rotate180: false },
+    9: { row: 1, col: 2, rotate180: false },
+    10: { row: 1, col: 3, rotate180: false },
+    11: { row: 0, col: 3, rotate180: true },
+    12: { row: 0, col: 2, rotate180: true },
+  };
+  const pasteBackCoverSlot = { row: 0, col: 0 };
+  const pasteFrontCoverSlot = { row: 0, col: 1 };
+  const frontCoverSlot = { row: 3, col: 1 };
+  const backCoverSlot = { row: 3, col: 0 };
+  const debugLabelByCell = {
+    '0,0': 'PASTE',
+    '0,1': 'PASTE',
+    '0,2': '12',
+    '0,3': '11',
+    '1,0': '7',
+    '1,1': '8',
+    '1,2': '9',
+    '1,3': '10',
+    '2,0': '6',
+    '2,1': '5',
+    '2,2': '4',
+    '2,3': '3',
+    '3,0': 'BACK COVER',
+    '3,1': 'FRONT COVER',
+    '3,2': '1',
+    '3,3': '2',
+  };
+
+  const queue = sourceText
+    .split('\n')
+    .map((line) => ({ text: line.trim(), isBlank: line.trim() === '' }));
+
+  pdf.setFont(bodyFontFamily, 'normal');
+  pdf.setFontSize(fontSize);
+
+  // Vertical fold lines: light dotted (inner only)
+  pdf.setDrawColor(180, 180, 180);
+  pdf.setLineWidth(0.4);
+  pdf.setLineDashPattern([1, 4], 0);
+  for (let col = 1; col < 4; col += 1) {
+    pdf.line(col * cellWidth, 0, col * cellWidth, pageHeight);
+  }
+
+  // Horizontal grid lines (inner only): very light dotted
+  for (let row = 1; row < 4; row += 1) {
+    pdf.line(0, row * cellHeight, pageWidth, row * cellHeight);
+  }
+
+  // Outer border: black dotted, stronger
+  pdf.setDrawColor(0, 0, 0);
+  pdf.setLineWidth(0.8);
+  pdf.setLineDashPattern([2, 3], 0);
+  pdf.line(0, 0, pageWidth, 0);
+  pdf.line(0, pageHeight, pageWidth, pageHeight);
+  pdf.line(0, 0, 0, pageHeight);
+  pdf.line(pageWidth, 0, pageWidth, pageHeight);
+
+  pdf.setLineDashPattern([], 0);
+
+  // Cut lines: gray dashed, prominent
+  pdf.setDrawColor(150, 150, 150);
+  pdf.setLineWidth(1.2);
+  pdf.setLineDashPattern([8, 6], 0);
+  pdf.line(0, cellHeight, cellWidth * 3, cellHeight);
+  pdf.line(cellWidth, cellHeight * 2, cellWidth * 4, cellHeight * 2);
+  pdf.line(0, cellHeight * 3, cellWidth * 3, cellHeight * 3);
+  pdf.setLineDashPattern([], 0);
+
+  pdf.setTextColor(0, 0, 0);
+
+  const coverTextInset = 10;
+  const coverTextWidth = cellWidth - coverTextInset * 2;
+
+  // Front cover: match app UI header — helvetica bold, uppercase, wide tracking
+  const frontCoverCharSpace = 2.5;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(14);
+  const frontCoverCenterX = frontCoverSlot.col * cellWidth + cellWidth / 2;
+  const frontCoverY = frontCoverSlot.row * cellHeight + cellHeight * 0.25;
+  for (let i = 0; i < ZINE_FRONT_COVER_LINES.length; i += 1) {
+    const line = ZINE_FRONT_COVER_LINES[i].toUpperCase();
+    const wrappedLineGroup = pdf.splitTextToSize(line, coverTextWidth);
+    for (let j = 0; j < wrappedLineGroup.length; j += 1) {
+      const lineW = pdf.getTextWidth(wrappedLineGroup[j]);
+      const totalCharSpace = frontCoverCharSpace * (wrappedLineGroup[j].length - 1);
+      pdf.text(wrappedLineGroup[j], frontCoverCenterX - (lineW + totalCharSpace) / 2, frontCoverY + i * 20 + j * 18, { charSpace: frontCoverCharSpace });
+    }
+  }
+
+  const backCoverLeftX = backCoverSlot.col * cellWidth + coverTextInset;
+  const backCoverBaseY = backCoverSlot.row * cellHeight + cellHeight * 0.70;
+  const backCoverLineGap = 13;
+  pdf.setFontSize(10);
+  for (let i = 0; i < ZINE_BACK_COVER_LINES.length; i += 1) {
+    pdf.setFont(backCoverFontFamily, i === 2 ? 'italic' : 'normal');
+    const wrappedLineGroup = pdf.splitTextToSize(ZINE_BACK_COVER_LINES[i], coverTextWidth);
+    for (let j = 0; j < wrappedLineGroup.length; j += 1) {
+      pdf.text(
+        wrappedLineGroup[j],
+        backCoverLeftX,
+        backCoverBaseY + i * backCoverLineGap + j * 12,
+        { align: 'left' }
+      );
+    }
+  }
+  pdf.setFont(coverFontFamily, 'normal');
+  pdf.setFontSize(20);
+
+  const pasteTextColor = [200, 200, 200];
+  const pasteLineGap = 12;
+  const drawPasteInstruction = (slot, text) => {
+    const centerX = slot.col * cellWidth + cellWidth / 2;
+    const centerY = slot.row * cellHeight + cellHeight * 0.50;
+    pdf.setFont(pasteFontFamily, 'normal');
+    pdf.setFontSize(10);
+    const wrapped = pdf.splitTextToSize(text, coverTextWidth);
+    const startY = centerY + ((wrapped.length - 1) * pasteLineGap) / 2;
+
+    pdf.setTextColor(...pasteTextColor);
+    for (let i = 0; i < wrapped.length; i += 1) {
+      const lineWidth = pdf.getTextWidth(wrapped[i]);
+      pdf.text(wrapped[i], centerX + lineWidth / 2, startY - i * pasteLineGap, { angle: 180 });
+    }
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFont(coverFontFamily, 'normal');
+    pdf.setFontSize(20);
+  };
+
+  drawPasteInstruction(pasteBackCoverSlot, ZINE_PASTE_FRONT_COVER_TEXT);
+  drawPasteInstruction(pasteFrontCoverSlot, ZINE_PASTE_BACK_COVER_TEXT);
+
+  if (ENABLE_ZINE_GRID_DEBUG_LABELS) {
+    pdf.setFont(debugFontFamily, 'normal');
+    pdf.setFontSize(8);
+    pdf.setTextColor(160, 160, 160);
+    for (let row = 0; row < 4; row += 1) {
+      for (let col = 0; col < 4; col += 1) {
+        const label = debugLabelByCell[`${row},${col}`];
+        if (!label) continue;
+        const x = col * cellWidth + 6;
+        const y = row * cellHeight + 10;
+        pdf.text(label, x, y);
+      }
+    }
+  }
+
+  pdf.setFont(bodyFontFamily, 'normal');
+  pdf.setFontSize(fontSize);
+  pdf.setTextColor(0, 0, 0);
+
+  const pageOrder = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+  for (const pageNumber of pageOrder) {
+    if (queue.length === 0) break;
+
+    const slot = slotByPageNumber[pageNumber];
+    if (!slot) continue;
+
+    const cellX = slot.col * cellWidth;
+    const cellY = slot.row * cellHeight;
+    const textWidth = cellWidth - cellPadding * 2;
+    const maxLines = Math.max(1, Math.floor((cellHeight - cellPadding * 2) / lineHeight));
+    const renderedLines = [];
+
+    while (queue.length > 0 && renderedLines.length < maxLines) {
+      const current = queue[0];
+
+      if (current.isBlank) {
+        renderedLines.push('');
+        queue.shift();
+        continue;
+      }
+
+      const wrapped = pdf.splitTextToSize(current.text, textWidth);
+      const remainingSlots = maxLines - renderedLines.length;
+
+      if (wrapped.length <= remainingSlots) {
+        renderedLines.push(...wrapped);
+        queue.shift();
+      } else {
+        if (remainingSlots <= 0) break;
+        renderedLines.push(...wrapped.slice(0, remainingSlots));
+        queue[0] = {
+          text: wrapped.slice(remainingSlots).join(' '),
+          isBlank: false,
+        };
+      }
+    }
+
+    if (!slot.rotate180) {
+      let y = cellY + cellPadding + fontSize;
+      const x = cellX + cellPadding;
+      for (const line of renderedLines) {
+        if (line) {
+          pdf.text(line, x, y);
+        }
+        y += lineHeight;
+      }
+    } else {
+      let y = cellY + cellHeight - cellPadding;
+      const x = cellX + cellWidth - cellPadding;
+      for (const line of renderedLines) {
+        if (line) {
+          pdf.text(line, x, y, { angle: 180 });
+        }
+        y -= lineHeight;
+      }
+    }
+  }
+
+  pdf.save(fileName);
+}
+
+function generateZinePdfV2(sourceText, fileName) {
+  return generateZinePdfV2Layout(sourceText, fileName);
+}
+
+async function generateZinePdfV2Lora(sourceText, fileName) {
+  return generateZinePdfV2Layout(sourceText, fileName, {
+    bodyFontFamily: ZINE_LORA_FONT_FAMILY,
+    coverFontFamily: ZINE_LORA_FONT_FAMILY,
+    backCoverFontFamily: ZINE_LORA_FONT_FAMILY,
+    pasteFontFamily: ZINE_LORA_FONT_FAMILY,
+    debugFontFamily: 'helvetica',
+    setupPdf: async (pdf) => {
+      await registerPdfFont(pdf, {
+        url: ZINE_LORA_FONT_URL,
+        vfsFileName: ZINE_LORA_FONT_VFS_NAME,
+        fontFamily: ZINE_LORA_FONT_FAMILY,
+        fontStyle: 'normal',
+      });
+      await registerPdfFont(pdf, {
+        url: ZINE_LORA_ITALIC_FONT_URL,
+        vfsFileName: ZINE_LORA_ITALIC_FONT_VFS_NAME,
+        fontFamily: ZINE_LORA_FONT_FAMILY,
+        fontStyle: 'italic',
+      });
+    },
+  });
+}
+
+function resolveZinePdfStyle(stylePreference) {
+  if (stylePreference === ZINE_PDF_STYLES.RANDOM) {
+    const randomIndex = Math.floor(Math.random() * AVAILABLE_ZINE_PDF_STYLES.length);
+    return AVAILABLE_ZINE_PDF_STYLES[randomIndex] ?? ZINE_PDF_STYLES.ZINE_V1;
+  }
+
+  if (AVAILABLE_ZINE_PDF_STYLES.includes(stylePreference)) {
+    return stylePreference;
+  }
+
+  return ZINE_PDF_STYLES.ZINE_V1;
+}
+
+async function exportZinePdf({ sourceText, fileName, stylePreference }) {
+  const resolvedStyle = resolveZinePdfStyle(stylePreference);
+
+  switch (resolvedStyle) {
+    case ZINE_PDF_STYLES.ZINE_V2_LORA:
+      try {
+        await generateZinePdfV2Lora(sourceText, fileName);
+      } catch (error) {
+        console.warn('Lora zine export failed, falling back to zine-v2.', error);
+        await generateZinePdfV2(sourceText, fileName);
+      }
+      break;
+    case ZINE_PDF_STYLES.ZINE_V2:
+      await generateZinePdfV2(sourceText, fileName);
+      break;
+    case ZINE_PDF_STYLES.ZINE_V1:
+    default:
+      generateZinePdfV1(sourceText, fileName);
+      break;
+  }
+
+  return resolvedStyle;
 }
 
 function buildGraph(sequences, variantsByText) {
@@ -305,6 +883,7 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isAutoplay, setIsAutoplay] = useState(false);
+  const [traversalRecord, setTraversalRecord] = useState(() => loadTraversalRecordFromSession());
   const [scrollHints, setScrollHints] = useState({
     left: false,
     right: false,
@@ -316,6 +895,24 @@ export default function App() {
   const mainContainerRef = useRef(null);
   const rootCellRef = useRef(null);
   const activeAudioRef = useRef(new Set());
+  const nodeRefsMap = useRef(new Map());
+  const headerRef = useRef(null);
+
+  const appendFragmentToTraversalRecord = (fragmentText) => {
+    const normalizedText = String(fragmentText ?? '').trim();
+    if (!normalizedText) return;
+
+    setTraversalRecord((prev) => {
+      const nextFragments = [...prev.fragments, normalizedText];
+      const nextRecord = {
+        ...prev,
+        updatedAt: new Date().toISOString(),
+        fragments: nextFragments,
+        pdfText: buildPdfTextFromFragments(nextFragments),
+      };
+      return nextRecord;
+    });
+  };
 
   useEffect(() => {
     setActiveId(rootId);
@@ -333,6 +930,10 @@ export default function App() {
       if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    persistTraversalRecord(traversalRecord);
+  }, [traversalRecord]);
 
   useLayoutEffect(() => {
     const container = mainContainerRef.current;
@@ -419,7 +1020,99 @@ export default function App() {
     void audio.play().catch(() => {});
   };
 
-  const handleNodeClick = (id) => {
+  const handleDownloadTraversalJson = () => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const exportRecord = {
+      ...traversalRecord,
+      pdfText: buildPdfTextFromFragments(traversalRecord.fragments),
+    };
+    const payload = JSON.stringify(exportRecord, null, 2);
+    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = USER_TRAVERSAL_STORAGE_KEY;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleDownloadTraversalPdf = async () => {
+    const sourceText = buildPdfTextFromFragments(traversalRecord.fragments).trim();
+
+    if (!sourceText) return;
+    await exportZinePdf({
+      sourceText,
+      fileName: USER_TRAVERSAL_PDF_FILE_NAME,
+      stylePreference: ACTIVE_ZINE_PDF_STYLE,
+    });
+  };
+
+  // End-of-faixa scroll: when no more clickable nodes remain, center back on "eu" (root).
+  useEffect(() => {
+    if (clickableIds.size !== 0 || activeId === rootId) return;
+    const container = mainContainerRef.current;
+    const rootEl = rootCellRef.current;
+    if (!container || !rootEl) return;
+
+    const timer = setTimeout(() => {
+      const containerRect = container.getBoundingClientRect();
+      const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+      const elRect = rootEl.getBoundingClientRect();
+      const elCenterY = elRect.top + elRect.height / 2;
+      const elCenterX = elRect.left + elRect.width / 2;
+      const visibleHeight = containerRect.height - headerHeight;
+      const targetScrollTop = container.scrollTop + elCenterY - (containerRect.top + headerHeight + visibleHeight / 2);
+      const targetScrollLeft = container.scrollLeft + elCenterX - (containerRect.left + containerRect.width / 2);
+      smoothScrollTo(container, targetScrollLeft, targetScrollTop, 900);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [clickableIds]);
+
+  // Smart scroll: after a click, if most next clickable nodes are outside the viewport,
+  // smooth-scroll to center the active node. Runs only when activeId changes (not on root reset).
+  useEffect(() => {
+    if (activeId === rootId) return;
+    const container = mainContainerRef.current;
+    const activeEl = nodeRefsMap.current.get(activeId);
+    if (!container || !activeEl) return;
+
+    const nextIds = Array.from(clickableIds);
+    if (nextIds.length === 0) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+    const effectiveTop = containerRect.top + headerHeight;
+
+    const visibleCount = nextIds.filter((nid) => {
+      const el = nodeRefsMap.current.get(nid);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return (
+        r.top >= effectiveTop &&
+        r.bottom <= containerRect.bottom &&
+        r.left >= containerRect.left &&
+        r.right <= containerRect.right
+      );
+    }).length;
+
+    const visibleRatio = visibleCount / nextIds.length;
+    if (visibleRatio < 0.5) {
+      // Manually scroll so active node ends up centered in the visible area below the header
+      const elRect = activeEl.getBoundingClientRect();
+      const elCenterY = elRect.top + elRect.height / 2;
+      const elCenterX = elRect.left + elRect.width / 2;
+      const visibleHeight = containerRect.height - headerHeight;
+      const targetScrollTop = container.scrollTop + elCenterY - (containerRect.top + headerHeight + visibleHeight / 2);
+      const targetScrollLeft = container.scrollLeft + elCenterX - (containerRect.left + containerRect.width / 2);
+      smoothScrollTo(container, targetScrollLeft, targetScrollTop, 600);
+    }
+  }, [activeId]);
+
+  const handleNodeClick = (id, options = {}) => {
+    const { recordTraversal = false } = options;
     const node = nodes[id];
     if (!node) return;
 
@@ -428,6 +1121,9 @@ export default function App() {
       setClickableIds(new Set(nodes[rootId]?.next ?? []));
       setRevealedIds(new Set([rootId]));
       playNodeEffect(nodes[rootId]);
+      if (recordTraversal) {
+        appendFragmentToTraversalRecord(nodes[rootId]?.text ?? '');
+      }
       return;
     }
 
@@ -436,6 +1132,9 @@ export default function App() {
       setRevealedIds((prev) => new Set(prev).add(id));
       setClickableIds(new Set(node.next));
       playNodeEffect(node);
+      if (recordTraversal) {
+        appendFragmentToTraversalRecord(node.text);
+      }
     }
   };
 
@@ -445,6 +1144,7 @@ export default function App() {
       style={paletteVars}
     >
       <header
+        ref={headerRef}
         className="fixed top-0 left-0 right-0 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 md:px-5 md:pt-5 md:pb-5 flex justify-between items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-panel)] z-30 shadow-2xl"
       >
         <div className="flex flex-col min-w-0 flex-1">
@@ -468,6 +1168,14 @@ export default function App() {
         </div>
 
         <div className="flex gap-1 md:gap-3 flex-shrink-0">
+          <button
+            onClick={handleDownloadTraversalPdf}
+            className="px-2 py-2 md:px-3 md:py-3 bg-black/40 hover:bg-[var(--color-border)] rounded-full text-[10px] md:text-xs font-bold tracking-[0.08em] uppercase text-[var(--color-green-muted)] transition-colors"
+            title="Exportar PDF da sessao"
+          >
+            zine
+          </button>
+
           <button
             onClick={() => setIsAutoplay(!isAutoplay)}
             className={`p-2 md:p-3 rounded-full transition-all flex items-center gap-2 ${
@@ -524,22 +1232,22 @@ export default function App() {
           </div>
         )}
         {scrollHints.left && (
-          <div className="pointer-events-none sticky left-5 md:left-8 top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+          <div className="hidden pointer-events-none sticky left-5 md:left-8 top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
             ←
           </div>
         )}
         {scrollHints.right && (
-          <div className="pointer-events-none sticky left-[calc(100%-1.25rem)] md:left-[calc(100%-2rem)] top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+          <div className="hidden pointer-events-none sticky left-[calc(100%-1.25rem)] md:left-[calc(100%-2rem)] top-1/2 z-20 w-0 -translate-y-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
             →
           </div>
         )}
         {scrollHints.up && (
-          <div className="pointer-events-none fixed top-24 md:top-32 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+          <div className="hidden pointer-events-none fixed top-24 md:top-32 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
             ↑
           </div>
         )}
         {scrollHints.down && (
-          <div className="pointer-events-none fixed bottom-5 md:bottom-8 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
+          <div className="hidden pointer-events-none fixed bottom-5 md:bottom-8 left-1/2 z-40 -translate-x-1/2 text-[var(--color-green-bright)] opacity-90 text-base md:text-lg drop-shadow-[0_0_8px_var(--color-green-glow-soft)]">
             ↓
           </div>
         )}
@@ -595,9 +1303,15 @@ export default function App() {
               return (
                 <div
                   key={`${x}-${y}`}
-                  ref={isRoot ? rootCellRef : null}
+                  ref={(el) => {
+                    if (isRoot) rootCellRef.current = el;
+                    if (nodeId) {
+                      if (el) nodeRefsMap.current.set(nodeId, el);
+                      else nodeRefsMap.current.delete(nodeId);
+                    }
+                  }}
                   className={cellClasses}
-                  onClick={() => !isAutoplay && nodeId && handleNodeClick(nodeId)}
+                  onClick={() => !isAutoplay && nodeId && handleNodeClick(nodeId, { recordTraversal: true })}
                 >
                   {nodeId && (
                     <span
