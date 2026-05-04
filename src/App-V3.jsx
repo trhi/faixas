@@ -1,5 +1,16 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Info, Volume2, VolumeX, Play, Pause, RotateCcw } from 'lucide-react';
+import {
+  Download,
+  FileUp,
+  Info,
+  Pause,
+  Play,
+  RotateCcw,
+  Search,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
@@ -7,7 +18,7 @@ const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
 const RNBO_PATCH_PATH = `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`;
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
-const ENABLE_TRAVERSAL_CACHE = false;
+const ENABLE_TRAVERSAL_CACHE = true;
 const ZINE_PDF_STYLES = {
   ZINE_V1: 'zine-v1',
   ZINE_V2: 'zine-v2',
@@ -37,6 +48,7 @@ const ZINE_FRONT_COVER_LINES = ['Faixas de', 'Rodagem do', 'Pensamento'];
 const ZINE_BACK_COVER_LINES = ['2026 —', 'Terhi Marttila', `— e Tu, ${CURRENT_DD_MM_YYYY}`];
 const ZINE_PASTE_BACK_COVER_TEXT = ['[colar no verso', 'da contracapa]'];
 const ZINE_PASTE_FRONT_COVER_TEXT = ['[colar no verso', '— — — da capa]'];
+const ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT = '[trilhar faixas\npara exportar\no teu caminho]';
 const APP_PALETTE_OLD = {
   bgMain: '#060a08',
   bgPanel: '#08100d',
@@ -164,6 +176,547 @@ async function registerPdfFont(pdf, { url, vfsFileName, fontFamily, fontStyle = 
 
 function getDatasetBaseUrl() {
   return new URL(DATASET_ROOT, window.location.href);
+}
+
+function getAppMode() {
+  if (typeof window === 'undefined') {
+    return 'graph';
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get('mode') === 'curate' ? 'curate' : 'graph';
+}
+
+function normalizeEditableText(text) {
+  return String(text ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function tokenizeEditableText(text) {
+  const normalized = normalizeEditableText(text);
+  return normalized ? normalized.split(' ') : [];
+}
+
+function ManifestCuratorApp() {
+  const [manifestEntries, setManifestEntries] = useState([]);
+  const [datasetError, setDatasetError] = useState('');
+  const [isDatasetLoading, setIsDatasetLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+  const [draftText, setDraftText] = useState('');
+  const [hiddenIds, setHiddenIds] = useState(() => new Set());
+  const [removedIds, setRemovedIds] = useState(() => new Set());
+  const [previewAudioId, setPreviewAudioId] = useState('');
+  const audioRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDataset() {
+      try {
+        const response = await fetch(new URL('manifest.json', getDatasetBaseUrl()));
+        if (!response.ok) {
+          throw new Error(`Nao foi possivel carregar o manifest (${response.status}).`);
+        }
+
+        const payload = await response.json();
+        if (!Array.isArray(payload)) {
+          throw new Error('O manifest.json nao tem o formato esperado.');
+        }
+
+        if (!isMounted) return;
+        setManifestEntries(payload);
+        setDatasetError('');
+      } catch (error) {
+        if (!isMounted) return;
+        setManifestEntries([]);
+        setDatasetError(error instanceof Error ? error.message : 'Falha ao carregar o manifest.');
+      } finally {
+        if (isMounted) {
+          setIsDatasetLoading(false);
+        }
+      }
+    }
+
+    void loadDataset();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+    };
+  }, []);
+
+  const entriesWithIds = useMemo(() => {
+    const datasetBaseUrl = getDatasetBaseUrl();
+    return manifestEntries.map((entry, index) => ({
+      ...entry,
+      _id: `${entry.recording_id}::${entry.sentence_id}::${entry.fragment_id}::${index}`,
+      audioUrl: new URL(entry.file, datasetBaseUrl).toString(),
+    }));
+  }, [manifestEntries]);
+
+  const selectedEntry = useMemo(
+    () => entriesWithIds.find((entry) => entry._id === selectedId) ?? null,
+    [entriesWithIds, selectedId],
+  );
+
+  useEffect(() => {
+    if (!selectedEntry) {
+      setDraftText('');
+      return;
+    }
+
+    setDraftText(selectedEntry.text ?? '');
+  }, [selectedEntry]);
+
+  const visibleEntries = useMemo(() => {
+    const normalizedQuery = normalizeEditableText(query);
+
+    return entriesWithIds.filter((entry) => {
+      if (removedIds.has(entry._id) || hiddenIds.has(entry._id)) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const haystack = [
+        entry.text,
+        entry.normalized_text,
+        entry.recording_id,
+        entry.file,
+      ]
+        .map((value) => normalizeEditableText(value))
+        .join(' ');
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [entriesWithIds, hiddenIds, query, removedIds]);
+
+  const curatedEntries = useMemo(() => {
+    return entriesWithIds
+      .filter((entry) => !removedIds.has(entry._id) && !hiddenIds.has(entry._id))
+      .map(({ _id, audioUrl, ...entry }) => entry);
+  }, [entriesWithIds, hiddenIds, removedIds]);
+
+  const stats = useMemo(() => ({
+    total: entriesWithIds.length,
+    visible: visibleEntries.length,
+    removed: removedIds.size,
+    hidden: hiddenIds.size,
+    curated: curatedEntries.length,
+  }), [curatedEntries.length, entriesWithIds.length, hiddenIds.size, removedIds.size, visibleEntries.length]);
+
+  const handleSelectEntry = (entry) => {
+    setSelectedId(entry._id);
+  };
+
+  const handleTogglePreview = async (entry) => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+
+    if (previewAudioId === entry._id) {
+      audioRef.current.pause();
+      setPreviewAudioId('');
+      return;
+    }
+
+    audioRef.current.pause();
+    audioRef.current.src = entry.audioUrl;
+    try {
+      await audioRef.current.play();
+      setPreviewAudioId(entry._id);
+    } catch (_) {
+      setPreviewAudioId('');
+    }
+  };
+
+  const handleRemoveEntry = (entry) => {
+    setRemovedIds((prev) => {
+      const next = new Set(prev);
+      next.add(entry._id);
+      return next;
+    });
+
+    setHiddenIds((prev) => {
+      if (!prev.has(entry._id)) return prev;
+      const next = new Set(prev);
+      next.delete(entry._id);
+      return next;
+    });
+
+    if (selectedId === entry._id) {
+      setSelectedId('');
+    }
+    if (previewAudioId === entry._id && audioRef.current) {
+      audioRef.current.pause();
+      setPreviewAudioId('');
+    }
+  };
+
+  const handleHideEntry = (entry) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(entry._id)) {
+        next.delete(entry._id);
+      } else {
+        next.add(entry._id);
+      }
+      return next;
+    });
+
+    if (selectedId === entry._id) {
+      setSelectedId('');
+    }
+  };
+
+  const handleApplyTextUpdate = () => {
+    if (!selectedEntry) return;
+
+    const normalizedText = normalizeEditableText(draftText);
+    if (!normalizedText) return;
+
+    const tokens = tokenizeEditableText(draftText);
+
+    setManifestEntries((prev) =>
+      prev.map((entry, index) => {
+        const entryId = `${entry.recording_id}::${entry.sentence_id}::${entry.fragment_id}::${index}`;
+        if (entryId !== selectedEntry._id) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          text: draftText.trim(),
+          normalized_text: normalizedText,
+          tokens,
+        };
+      }),
+    );
+  };
+
+  const handleResetManualChanges = () => {
+    setQuery('');
+    setSelectedId('');
+    setDraftText('');
+    setHiddenIds(new Set());
+    setRemovedIds(new Set());
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setPreviewAudioId('');
+  };
+
+  const handleDownloadCuratedManifest = () => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const payload = JSON.stringify(curatedEntries, null, 2);
+    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = 'manifest.curated.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleImportManifest = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const payload = JSON.parse(await file.text());
+      if (!Array.isArray(payload)) {
+        throw new Error('O ficheiro importado nao e uma lista de fragmentos.');
+      }
+
+      setManifestEntries(payload);
+      setDatasetError('');
+      setSelectedId('');
+      setDraftText('');
+      setHiddenIds(new Set());
+      setRemovedIds(new Set());
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setPreviewAudioId('');
+    } catch (error) {
+      setDatasetError(error instanceof Error ? error.message : 'Falha ao importar o ficheiro JSON.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen text-slate-100"
+      style={{
+        background:
+          'radial-gradient(circle at top left, rgba(72,255,194,0.12), transparent 28%), linear-gradient(180deg, #050806 0%, #08100d 48%, #040605 100%)',
+      }}
+    >
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="rounded-[28px] border border-white/10 bg-black/20 px-5 py-5 backdrop-blur-sm sm:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs uppercase tracking-[0.32em] text-[#48ffc2]">Modo de Curadoria</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                podar, ouvir e corrigir o manifest manualmente
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+                Este e um editor local. Nada escreve no disco automaticamente. Faz a tua curadoria,
+                depois exporta um novo JSON e substitui manualmente o manifest final.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <div className="text-slate-400">total</div>
+                <div className="mt-1 text-xl font-semibold text-white">{stats.total}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <div className="text-slate-400">visiveis</div>
+                <div className="mt-1 text-xl font-semibold text-white">{stats.visible}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <div className="text-slate-400">removidos</div>
+                <div className="mt-1 text-xl font-semibold text-white">{stats.removed}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <div className="text-slate-400">resultado</div>
+                <div className="mt-1 text-xl font-semibold text-white">{stats.curated}</div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <section className="rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <label className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <Search size={18} className="text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="procurar por texto, normalized_text, ficheiro ou recording_id"
+                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+              />
+            </label>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
+              >
+                <FileUp size={16} />
+                importar JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadCuratedManifest}
+                className="inline-flex items-center gap-2 rounded-2xl border border-[#48ffc2]/30 bg-[#48ffc2]/10 px-4 py-3 text-sm text-[#48ffc2] transition hover:bg-[#48ffc2]/15"
+              >
+                <Download size={16} />
+                exportar curated
+              </button>
+              <button
+                type="button"
+                onClick={handleResetManualChanges}
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
+              >
+                <RotateCcw size={16} />
+                limpar sessao
+              </button>
+            </div>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleImportManifest}
+          />
+
+          {datasetError ? (
+            <div className="mt-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              {datasetError}
+            </div>
+          ) : null}
+        </section>
+
+        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <section className="min-h-[50vh] rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Fragmentos</h2>
+                <p className="text-sm text-slate-400">Seleciona um fragmento para ouvir ou editar.</p>
+              </div>
+              {isDatasetLoading ? <div className="text-sm text-slate-400">a carregar...</div> : null}
+            </div>
+
+            <div className="grid gap-3">
+              {visibleEntries.map((entry) => {
+                const isSelected = entry._id === selectedId;
+                const isPreviewing = entry._id === previewAudioId;
+
+                return (
+                  <article
+                    key={entry._id}
+                    className={`rounded-3xl border px-4 py-4 transition ${
+                      isSelected
+                        ? 'border-[#48ffc2]/40 bg-[#48ffc2]/10'
+                        : 'border-white/10 bg-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectEntry(entry)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                          <span>{entry.recording_id}</span>
+                          <span>s{String(entry.sentence_id).padStart(3, '0')}</span>
+                          <span>f{String(entry.fragment_id).padStart(3, '0')}</span>
+                        </div>
+                        <div className="mt-3 text-base font-medium text-white sm:text-lg">{entry.text}</div>
+                        <div className="mt-2 text-sm text-slate-400">{entry.normalized_text}</div>
+                        <div className="mt-3 truncate text-xs text-slate-500">{entry.file}</div>
+                      </button>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePreview(entry)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white transition hover:bg-white/10"
+                        >
+                          {isPreviewing ? <Pause size={15} /> : <Play size={15} />}
+                          {isPreviewing ? 'parar' : 'ouvir'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleHideEntry(entry)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100 transition hover:bg-amber-300/15"
+                        >
+                          <Info size={15} />
+                          esconder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEntry(entry)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100 transition hover:bg-rose-300/15"
+                        >
+                          <X size={15} />
+                          remover
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {!isDatasetLoading && visibleEntries.length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 px-4 py-8 text-sm text-slate-400">
+                  Nao ha fragmentos visiveis com os filtros atuais.
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <aside className="rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Editor</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Corrige o texto e exporta quando acabares. O ficheiro final continua a ser manual.
+              </p>
+            </div>
+
+            {selectedEntry ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-slate-400">selecionado</div>
+                  <div className="mt-2 text-lg font-medium text-white">{selectedEntry.text}</div>
+                  <div className="mt-1 text-sm text-slate-400">{selectedEntry.file}</div>
+                </div>
+
+                <label className="block">
+                  <div className="mb-2 text-sm text-slate-300">texto visivel</div>
+                  <textarea
+                    value={draftText}
+                    onChange={(event) => setDraftText(event.target.value)}
+                    rows={5}
+                    className="w-full rounded-3xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                    placeholder="corrigir transcricao deste fragmento"
+                  />
+                </label>
+
+                <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">normalized_text</div>
+                    <div className="mt-1 break-words text-white">{normalizeEditableText(draftText) || 'vazio'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">tokens</div>
+                    <div className="mt-1 break-words text-white">
+                      {tokenizeEditableText(draftText).join(' | ') || 'vazio'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={handleApplyTextUpdate}
+                    className="rounded-2xl border border-[#48ffc2]/30 bg-[#48ffc2]/10 px-4 py-3 text-sm text-[#48ffc2] transition hover:bg-[#48ffc2]/15"
+                  >
+                    aplicar ao manifest carregado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePreview(selectedEntry)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
+                  >
+                    {previewAudioId === selectedEntry._id ? <Pause size={15} /> : <Play size={15} />}
+                    ouvir fragmento
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-3xl border border-dashed border-white/10 bg-white/5 px-4 py-8 text-sm text-slate-400">
+                Seleciona um fragmento na coluna da esquerda.
+              </div>
+            )}
+
+            <div className="mt-6 rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">workflow</div>
+              <ol className="mt-3 list-decimal space-y-2 pl-5">
+                <li>Ouvir o fragmento.</li>
+                <li>Corrigir o texto ou remover o item.</li>
+                <li>Exportar `manifest.curated.json`.</li>
+                <li>Substituir manualmente `public/audio-library/current/manifest.json`.</li>
+              </ol>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function buildSentenceData(manifestEntries) {
@@ -459,10 +1012,6 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     '3,3': '2',
   };
 
-  const queue = sourceText
-    .split('\n')
-    .map((line) => ({ text: line.trim(), isBlank: line.trim() === '' }));
-
   pdf.setFont(bodyFontFamily, 'normal');
   pdf.setFontSize(fontSize);
 
@@ -582,63 +1131,128 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   pdf.setTextColor(0, 0, 0);
 
   const pageOrder = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const textWidth = cellWidth - cellPadding * 2;
+  const maxLines = Math.max(1, Math.floor((cellHeight - cellPadding * 2) / lineHeight));
+  const isEmptyTraversalPlaceholder =
+    sourceText.trim() === ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT;
 
-  for (const pageNumber of pageOrder) {
-    if (queue.length === 0) break;
-
-    const slot = slotByPageNumber[pageNumber];
-    if (!slot) continue;
-
-    const cellX = slot.col * cellWidth;
-    const cellY = slot.row * cellHeight;
-    const textWidth = cellWidth - cellPadding * 2;
-    const maxLines = Math.max(1, Math.floor((cellHeight - cellPadding * 2) / lineHeight));
-    const renderedLines = [];
-
-    while (queue.length > 0 && renderedLines.length < maxLines) {
-      const current = queue[0];
-
-      if (current.isBlank) {
-        renderedLines.push('');
-        queue.shift();
-        continue;
-      }
-
-      const wrapped = pdf.splitTextToSize(current.text, textWidth);
-      const remainingSlots = maxLines - renderedLines.length;
-
-      if (wrapped.length <= remainingSlots) {
-        renderedLines.push(...wrapped);
-        queue.shift();
-      } else {
-        if (remainingSlots <= 0) break;
-        renderedLines.push(...wrapped.slice(0, remainingSlots));
-        queue[0] = {
-          text: wrapped.slice(remainingSlots).join(' '),
-          isBlank: false,
-        };
-      }
+  // Split source text into individual faixas (separated by blank lines)
+  const rawFaixaLines = sourceText.split('\n');
+  const allFaixas = [];
+  let currentFaixaLines = [];
+  for (const line of rawFaixaLines) {
+    if (line === '' && currentFaixaLines.length > 0) {
+      allFaixas.push(currentFaixaLines);
+      currentFaixaLines = [];
+    } else if (line !== '') {
+      currentFaixaLines.push(line);
     }
+  }
+  if (currentFaixaLines.length > 0) allFaixas.push(currentFaixaLines);
 
-    if (!slot.rotate180) {
-      let y = cellY + cellPadding + fontSize;
-      const x = cellX + cellPadding;
-      for (const line of renderedLines) {
-        if (line) {
-          pdf.text(line, x, y);
+  // Count how many slots each faixa occupies when laid out
+  const countSlotsForFaixa = (lines) => {
+    const q = lines.map((l) => ({ text: l }));
+    let slots = 0;
+    while (q.length > 0) {
+      let filled = 0;
+      while (q.length > 0 && filled < maxLines) {
+        const wrapped = pdf.splitTextToSize(q[0].text, textWidth);
+        const rem = maxLines - filled;
+        if (wrapped.length <= rem) {
+          filled += wrapped.length;
+          q.shift();
+        } else {
+          filled += rem;
+          q[0] = { text: wrapped.slice(rem).join(' ') };
+          break;
         }
-        y += lineHeight;
       }
+      slots += 1;
+    }
+    return slots;
+  };
+
+  const slotCounts = allFaixas.map((f) => countSlotsForFaixa([...f]));
+
+  // Keep the most recent faixas that fit within available slots; push older ones off
+  const maxSlots = pageOrder.length;
+  let totalSlots = 0;
+  let includedCount = 0;
+  for (let i = allFaixas.length - 1; i >= 0; i -= 1) {
+    if (totalSlots + slotCounts[i] <= maxSlots) {
+      totalSlots += slotCounts[i];
+      includedCount += 1;
     } else {
-      let y = cellY + cellHeight - cellPadding;
-      const x = cellX + cellWidth - cellPadding;
-      for (const line of renderedLines) {
-        if (line) {
-          pdf.text(line, x, y, { angle: 180 });
+      break;
+    }
+  }
+  const trimmedFaixas = allFaixas.slice(allFaixas.length - includedCount);
+
+  // Render: each faixa begins on a fresh slot (page break between faixas)
+  let slotIndex = 0;
+  for (const faixa of trimmedFaixas) {
+    const faixaQueue = faixa.map((l) => ({ text: l }));
+
+    while (faixaQueue.length > 0 && slotIndex < pageOrder.length) {
+      const pageNumber = pageOrder[slotIndex];
+      slotIndex += 1;
+      const slot = slotByPageNumber[pageNumber];
+      if (!slot) continue;
+
+      const cellX = slot.col * cellWidth;
+      const cellY = slot.row * cellHeight;
+      const renderedLines = [];
+
+      while (faixaQueue.length > 0 && renderedLines.length < maxLines) {
+        const wrapped = pdf.splitTextToSize(faixaQueue[0].text, textWidth);
+        const remaining = maxLines - renderedLines.length;
+        if (wrapped.length <= remaining) {
+          renderedLines.push(...wrapped);
+          faixaQueue.shift();
+        } else {
+          if (remaining <= 0) break;
+          renderedLines.push(...wrapped.slice(0, remaining));
+          faixaQueue[0] = { text: wrapped.slice(remaining).join(' ') };
+          break;
         }
-        y -= lineHeight;
+      }
+
+      if (!slot.rotate180) {
+        const shouldCenterPlaceholder = isEmptyTraversalPlaceholder && pageNumber === 1;
+        if (shouldCenterPlaceholder) {
+          const contentHeight = Math.max(0, (renderedLines.length - 1) * lineHeight);
+          let y = cellY + cellHeight / 2 - contentHeight / 2;
+          for (const line of renderedLines) {
+            if (line) {
+              const lineWidth = pdf.getTextWidth(line);
+              const x = cellX + cellWidth / 2 - lineWidth / 2;
+              pdf.text(line, x, y);
+            }
+            y += lineHeight;
+          }
+        } else {
+          let y = cellY + cellPadding + fontSize;
+          const x = cellX + cellPadding;
+          for (const line of renderedLines) {
+            if (line) {
+              pdf.text(line, x, y);
+            }
+            y += lineHeight;
+          }
+        }
+      } else {
+        let y = cellY + cellHeight - cellPadding - fontSize;
+        const x = cellX + cellWidth - cellPadding;
+        for (const line of renderedLines) {
+          if (line) {
+            pdf.text(line, x, y, { angle: 180 });
+          }
+          y -= lineHeight;
+        }
       }
     }
+    // After faixa ends: slotIndex already points to next slot (natural page break)
   }
 
   pdf.save(fileName);
@@ -827,10 +1441,42 @@ function buildGraph(sequences, variantsByText) {
     node.next = Array.from(node.next);
   }
 
-  return { nodes, grid, rootId: 'root', center, gridSize };
+  // Trim the grid to the bounding box of occupied cells, keeping it square with 1-cell padding.
+  let minRow = gridSize, maxRow = 0, minCol = gridSize, maxCol = 0;
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize; x++) {
+      if (grid[y][x] !== null) {
+        if (y < minRow) minRow = y;
+        if (y > maxRow) maxRow = y;
+        if (x < minCol) minCol = x;
+        if (x > maxCol) maxCol = x;
+      }
+    }
+  }
+  const TRIM_PAD = 1;
+  const occupiedSpan = Math.max(maxRow - minRow, maxCol - minCol) + 1;
+  const trimmedSize = occupiedSpan + TRIM_PAD * 2;
+  const rCenter = Math.round((minRow + maxRow) / 2);
+  const cCenter = Math.round((minCol + maxCol) / 2);
+  const r0 = Math.max(0, rCenter - Math.floor(trimmedSize / 2));
+  const c0 = Math.max(0, cCenter - Math.floor(trimmedSize / 2));
+  const trimmedGrid = Array.from({ length: trimmedSize }, (_, i) =>
+    Array.from({ length: trimmedSize }, (_, j) => grid[r0 + i]?.[c0 + j] ?? null)
+  );
+  for (const node of Object.values(nodes)) {
+    node.x -= c0;
+    node.y -= r0;
+  }
+  const trimmedCenter = Math.floor(trimmedSize / 2);
+
+  return { nodes, grid: trimmedGrid, rootId: 'root', center: trimmedCenter, gridSize: trimmedSize };
 }
 
 export default function App() {
+  if (getAppMode() === 'curate') {
+    return <ManifestCuratorApp />;
+  }
+
   const [manifestEntries, setManifestEntries] = useState([]);
   const [datasetError, setDatasetError] = useState('');
   const [isDatasetLoading, setIsDatasetLoading] = useState(true);
@@ -923,6 +1569,7 @@ export default function App() {
   const headerRef = useRef(null);
   const rnboApiRef = useRef(null); // RNBO runtime handles and cleanup refs
   const rnboInitializedRef = useRef(false);
+  const initRNBORef = useRef(null);
 
   // Initialize RNBO soundscape on first user interaction.
   useEffect(() => {
@@ -977,9 +1624,6 @@ export default function App() {
           device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
         }, 100);
 
-        // Optional kick message for RNBO control inlet.
-        device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
-
         // Idle fallback: if RNBO outputs no MIDI for a while, poke control/event inlets
         // at random intervals so the ambient layer keeps moving without user clicks.
         const scheduleIdleTrigger = () => {
@@ -1020,9 +1664,10 @@ export default function App() {
       }
     };
 
-    window.addEventListener('pointerdown', initRNBO);
+    // Expose initRNBO via ref so handleNodeClick can trigger it on faixa clicks only.
+    initRNBORef.current = initRNBO;
     return () => {
-      window.removeEventListener('pointerdown', initRNBO);
+      initRNBORef.current = null;
       const api = rnboApiRef.current;
       if (api?.beatTimer) {
         window.clearInterval(api.beatTimer);
@@ -1206,9 +1851,9 @@ export default function App() {
   };
 
   const handleDownloadTraversalPdf = async () => {
-    const sourceText = buildPdfTextFromFragments(traversalRecord.fragments).trim();
-
-    if (!sourceText) return;
+    const sourceText =
+      buildPdfTextFromFragments(traversalRecord.fragments).trim() ||
+      ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT;
     await exportZinePdf({
       sourceText,
       fileName: USER_TRAVERSAL_PDF_FILE_NAME,
@@ -1237,13 +1882,12 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [clickableIds]);
 
-  // Smart scroll: after a click, if most next clickable nodes are outside the viewport,
-  // smooth-scroll to center the active node. Runs only when activeId changes (not on root reset).
+  // Smart scroll: after a click, if no next clickable nodes are visible,
+  // smooth-scroll to the closest one so the user knows where to continue.
   useEffect(() => {
     if (activeId === rootId) return;
     const container = mainContainerRef.current;
-    const activeEl = nodeRefsMap.current.get(activeId);
-    if (!container || !activeEl) return;
+    if (!container) return;
 
     const nextIds = Array.from(clickableIds);
     if (nextIds.length === 0) return;
@@ -1251,8 +1895,11 @@ export default function App() {
     const containerRect = container.getBoundingClientRect();
     const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
     const effectiveTop = containerRect.top + headerHeight;
+    const viewCenterX = containerRect.left + containerRect.width / 2;
+    const viewCenterY = effectiveTop + (containerRect.height - headerHeight) / 2;
 
-    const visibleCount = nextIds.filter((nid) => {
+    // Check which clickable nodes are already fully visible.
+    const visibleIds = nextIds.filter((nid) => {
       const el = nodeRefsMap.current.get(nid);
       if (!el) return false;
       const r = el.getBoundingClientRect();
@@ -1262,22 +1909,44 @@ export default function App() {
         r.left >= containerRect.left &&
         r.right <= containerRect.right
       );
-    }).length;
+    });
 
-    const visibleRatio = visibleCount / nextIds.length;
-    if (visibleRatio < 0.5) {
-      // Manually scroll so active node ends up centered in the visible area below the header
-      const elRect = activeEl.getBoundingClientRect();
-      const elCenterY = elRect.top + elRect.height / 2;
-      const elCenterX = elRect.left + elRect.width / 2;
-      const visibleHeight = containerRect.height - headerHeight;
-      const targetScrollTop = container.scrollTop + elCenterY - (containerRect.top + headerHeight + visibleHeight / 2);
-      const targetScrollLeft = container.scrollLeft + elCenterX - (containerRect.left + containerRect.width / 2);
-      smoothScrollTo(container, targetScrollLeft, targetScrollTop, 600);
+    if (visibleIds.length > 0) return; // At least one clickable node is visible — no scroll needed.
+
+    // None visible: find the closest clickable node to the viewport center and scroll to it.
+    let closestId = null;
+    let closestDist = Infinity;
+    for (const nid of nextIds) {
+      const el = nodeRefsMap.current.get(nid);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dist = Math.hypot(cx - viewCenterX, cy - viewCenterY);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestId = nid;
+      }
     }
+
+    if (!closestId) return;
+    const targetEl = nodeRefsMap.current.get(closestId);
+    if (!targetEl) return;
+
+    const elRect = targetEl.getBoundingClientRect();
+    const elCenterY = elRect.top + elRect.height / 2;
+    const elCenterX = elRect.left + elRect.width / 2;
+    const visibleHeight = containerRect.height - headerHeight;
+    const targetScrollTop = container.scrollTop + elCenterY - (effectiveTop + visibleHeight / 2);
+    const targetScrollLeft = container.scrollLeft + elCenterX - (containerRect.left + containerRect.width / 2);
+    smoothScrollTo(container, targetScrollLeft, targetScrollTop, 600);
   }, [activeId]);
 
   const sendRNBOBang = () => {
+    // Initialize RNBO on first faixa click if not yet started.
+    if (!rnboInitializedRef.current && initRNBORef.current) {
+      initRNBORef.current();
+    }
     const api = rnboApiRef.current;
     if (!api) return;
     api.device.scheduleEvent(new api.MessageEvent(api.TimeNow, 'in1', undefined));
@@ -1288,9 +1957,8 @@ export default function App() {
     const node = nodes[id];
     if (!node) return;
 
-    sendRNBOBang();
-
     if (id === rootId) {
+      sendRNBOBang();
       setActiveId(rootId);
       setClickableIds(new Set(nodes[rootId]?.next ?? []));
       setRevealedIds(new Set([rootId]));
@@ -1302,6 +1970,7 @@ export default function App() {
     }
 
     if (clickableIds.has(id)) {
+      sendRNBOBang();
       setActiveId(id);
       setRevealedIds((prev) => new Set(prev).add(id));
       setClickableIds(new Set(node.next));
@@ -1368,7 +2037,7 @@ export default function App() {
 
           <button
             onClick={() => handleNodeClick(rootId)}
-            className="p-2 md:p-3 bg-black/40 hover:bg-[var(--color-border)] rounded-full text-[var(--color-green-muted)] transition-colors"
+            className="hidden p-2 md:p-3 bg-black/40 hover:bg-[var(--color-border)] rounded-full text-[var(--color-green-muted)] transition-colors"
             title="Reiniciar"
           >
             <RotateCcw size={16} className="md:w-5 md:h-5" />
@@ -1398,7 +2067,7 @@ export default function App() {
 
       <main
         ref={mainContainerRef}
-        className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_var(--color-bg-surface)_0%,_var(--color-bg-main)_100%)] flex items-center justify-center p-4 md:p-12 pt-24 md:pt-28 pb-24 md:pb-28"
+        className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_var(--color-bg-surface)_0%,_var(--color-bg-main)_100%)] flex items-start justify-center p-4 md:p-12 pt-24 md:pt-28 pb-24 md:pb-28"
       >
         {(isDatasetLoading || datasetError) && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-4 py-2 border border-[var(--color-border)] bg-[var(--color-bg-panel-soft)] text-xs md:text-sm uppercase tracking-[0.15em] text-[var(--color-green-muted)]">
@@ -1426,7 +2095,7 @@ export default function App() {
           </div>
         )}
         <div
-          className={`grid transition-opacity duration-1000 ${
+          className={`grid my-auto transition-opacity duration-1000 ${
             isAutoplay ? 'opacity-90' : 'opacity-100'
           }`}
           style={{
@@ -1490,7 +2159,7 @@ export default function App() {
                   {nodeId && (
                     <span
                       aria-hidden="true"
-                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-40 select-none pointer-events-none leading-none text-[5.6rem] md:text-[4.5rem]"
+                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-70 select-none pointer-events-none leading-none text-[5.6rem] md:text-[4.5rem]"
                     >
                       ✺
                     </span>
@@ -1561,6 +2230,11 @@ export default function App() {
                 <br />
                 Agradeçimentos: Jorge Gonçalves, Né Barros, Watson Hartsoe, Jay David Bolter
               </p>
+              <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
+                ➤ precisas de ajuda a dobrar o zine? - segue <a target="_blank" rel="noreferrer"
+                  href="https://youtu.be/xMJNUb0uJk8?si=OMWHhIJWALD9ZL36&t=19"
+                  className="cursor-pointer underline decoration-[var(--color-green-bright)] decoration-2 underline-offset-2 text-[var(--color-green-bright)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-green-bright)]">este vídeo</a>!
+            </p>
             </div>
             <button
               onClick={() => setShowInfo(false)}
