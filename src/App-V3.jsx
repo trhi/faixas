@@ -1375,7 +1375,7 @@ function buildGraph(sequences, variantsByText) {
         const angleToNode = Math.atan2(py - center, px - center);
         let diff = Math.abs(angleToNode - preferredAngle);
         if (diff > Math.PI) diff = 2 * Math.PI - diff;
-        const score = -diff + Math.random() * 0.4;
+        const score = -diff;
         if (score > maxScore) {
           maxScore = score;
           bestCell = [px, py];
@@ -2159,7 +2159,7 @@ export default function App() {
                   {nodeId && (
                     <span
                       aria-hidden="true"
-                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-70 select-none pointer-events-none leading-none text-[5.6rem] md:text-[4.5rem]"
+                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-70 select-none pointer-events-none leading-none text-[5.4rem] md:text-[4.5rem]"
                     >
                       ✺
                     </span>
