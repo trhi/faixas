@@ -19,6 +19,7 @@ const RNBO_PATCH_PATH = `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.jso
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
 const ENABLE_TRAVERSAL_CACHE = true;
+const AUTOPLAY_RECORDS_ZINE = true;
 const ZINE_PDF_STYLES = {
   ZINE_V1: 'zine-v1',
   ZINE_V2: 'zine-v2',
@@ -1554,6 +1555,8 @@ export default function App() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isAutoplay, setIsAutoplay] = useState(false);
   const [traversalRecord, setTraversalRecord] = useState(() => loadTraversalRecordFromSession());
+  const [endOfFaixaStar, setEndOfFaixaStar] = useState(false);
+  const endOfFaixaStarTimerRef = useRef(null);
   const [scrollHints, setScrollHints] = useState({
     left: false,
     right: false,
@@ -1796,11 +1799,11 @@ export default function App() {
       autoplayTimerRef.current = setTimeout(() => {
         const options = Array.from(clickableIds);
         const randomChoice = options[Math.floor(Math.random() * options.length)];
-        handleNodeClick(randomChoice);
+        handleNodeClick(randomChoice, { recordTraversal: AUTOPLAY_RECORDS_ZINE });
       }, nextDelay);
     } else if (isAutoplay && clickableIds.size === 0) {
       autoplayTimerRef.current = setTimeout(() => {
-        handleNodeClick(rootId);
+        handleNodeClick(rootId, { recordTraversal: AUTOPLAY_RECORDS_ZINE });
       }, 3000);
     }
 
@@ -1860,6 +1863,28 @@ export default function App() {
       stylePreference: ACTIVE_ZINE_PDF_STYLE,
     });
   };
+
+  // End-of-faixa star animation: after last word is clicked, fade to ✺ then back.
+  useEffect(() => {
+    if (endOfFaixaStarTimerRef.current) {
+      clearTimeout(endOfFaixaStarTimerRef.current);
+      endOfFaixaStarTimerRef.current = null;
+    }
+    if (clickableIds.size !== 0 || activeId === rootId) {
+      setEndOfFaixaStar(false);
+      return;
+    }
+    endOfFaixaStarTimerRef.current = setTimeout(() => {
+      setEndOfFaixaStar(true);
+      endOfFaixaStarTimerRef.current = setTimeout(() => {
+        setEndOfFaixaStar(false);
+        endOfFaixaStarTimerRef.current = null;
+      }, 1000);
+    }, 1000);
+    return () => {
+      if (endOfFaixaStarTimerRef.current) clearTimeout(endOfFaixaStarTimerRef.current);
+    };
+  }, [clickableIds.size, activeId, rootId]);
 
   // End-of-faixa scroll: when no more clickable nodes remain, center back on "eu" (root).
   useEffect(() => {
@@ -2159,16 +2184,18 @@ export default function App() {
                   {nodeId && (
                     <span
                       aria-hidden="true"
-                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 text-[var(--color-border-faint)] opacity-70 select-none pointer-events-none leading-none text-[5.4rem] md:text-[4.5rem]"
+                      className="absolute inset-0 z-0 flex items-center justify-center -translate-y-[0.08em] md:translate-y-0 opacity-70 select-none pointer-events-none leading-none text-[5.4rem] md:text-[4.5rem] transition-colors duration-500"
+                      style={{ color: isActive && !isRoot && endOfFaixaStar ? 'var(--color-green-muted)' : 'var(--color-border-faint)' }}
                     >
                       ✺
                     </span>
                   )}
                   {content && (
                     <span
-                      className={`relative z-10 leading-tight px-1 select-none transition-all ${
+                      className={`relative z-10 leading-tight px-1 select-none transition-all duration-500 ${
                         isActive ? 'text-[19px] md:text-[27px]' : 'text-[17px] md:text-[23px]'
                       }`}
+                      style={{ opacity: isActive && !isRoot && endOfFaixaStar ? 0 : 1 }}
                     >
                       {content}
                     </span>

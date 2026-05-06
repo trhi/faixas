@@ -4263,31 +4263,6 @@
   {
     "recording_id": "marttila-2026-faixas-02",
     "sentence_id": 15,
-    "fragment_id": 6,
-    "text": "lugar",
-    "normalized_text": "lugar",
-    "tokens": [
-      "lugar"
-    ],
-    "source_start": 317.66,
-    "source_end": 318.04,
-    "aligned_start": 317.66,
-    "aligned_end": 318.04,
-    "refined_start": 317.84000000000003,
-    "refined_end": 318.04,
-    "padded_start": 317.74,
-    "padded_end": 318.34000000000003,
-    "pad_before_ms": 100,
-    "pad_after_ms": 300,
-    "fade_in_ms": 100,
-    "fade_out_ms": 300,
-    "refine_window_ms": 180,
-    "alignment_mode": "rough",
-    "file": "snippets/marttila-2026-faixas-02/marttila-2026-faixas-02__s015__f006__lugar.mp3"
-  },
-  {
-    "recording_id": "marttila-2026-faixas-02",
-    "sentence_id": 15,
     "fragment_id": 7,
     "text": "noutro lugar",
     "normalized_text": "noutro lugar",
