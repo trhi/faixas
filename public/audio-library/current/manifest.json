@@ -315,10 +315,10 @@
     "recording_id": "marttila-2026-faixas-01",
     "sentence_id": 1,
     "fragment_id": 13,
-    "text": "da cima",
-    "normalized_text": "da cima",
+    "text": "de cima",
+    "normalized_text": "de cima",
     "tokens": [
-      "da",
+      "de",
       "cima"
     ],
     "source_start": 30.27,
@@ -17407,10 +17407,10 @@
     "recording_id": "marttila-2026-faixas-08",
     "sentence_id": 6,
     "fragment_id": 5,
-    "text": "a toda a gente",
-    "normalized_text": "a toda a gente",
+    "text": "à toda a gente",
+    "normalized_text": "à toda a gente",
     "tokens": [
-      "a",
+      "à",
       "toda",
       "a",
       "gente"

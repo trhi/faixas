@@ -24,20 +24,35 @@ const ZINE_PDF_STYLES = {
   ZINE_V1: 'zine-v1',
   ZINE_V2: 'zine-v2',
   ZINE_V2_LORA: 'zine-v2-lora',
+  ZINE_V3: 'zine-v3',
   RANDOM: 'random',
 };
 const AVAILABLE_ZINE_PDF_STYLES = [
   ZINE_PDF_STYLES.ZINE_V1,
   ZINE_PDF_STYLES.ZINE_V2,
   ZINE_PDF_STYLES.ZINE_V2_LORA,
+  ZINE_PDF_STYLES.ZINE_V3,
 ];
-const ACTIVE_ZINE_PDF_STYLE = ZINE_PDF_STYLES.ZINE_V2_LORA;
+const ACTIVE_ZINE_PDF_STYLE = ZINE_PDF_STYLES.ZINE_V3;
 const ENABLE_ZINE_GRID_DEBUG_LABELS = false;
 const ZINE_LORA_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-wght.ttf`;
 const ZINE_LORA_FONT_VFS_NAME = 'Lora-wght.ttf';
 const ZINE_LORA_ITALIC_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-Italic-wght.ttf`;
 const ZINE_LORA_ITALIC_FONT_VFS_NAME = 'Lora-Italic-wght.ttf';
 const ZINE_LORA_FONT_FAMILY = 'Lora';
+const ZINE_COVER_IMAGE_URL = `${import.meta.env.BASE_URL}img/zine-img-V2.png`;
+const ZINE_V3_COVER_IMAGE_CYCLE = [
+  `${import.meta.env.BASE_URL}img/zine-img-V2.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V3.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V4.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V5.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V6.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V7.png`,
+  `${import.meta.env.BASE_URL}img/zine-img-V8.png`,
+];
+const ZINE_V3_COVER_IMAGE_STATIC = `${import.meta.env.BASE_URL}img/zine-img-V7.png`;
+const CYCLE_ZINE_IMG = true;
+const ZINE_V3_COVER_IMAGE_CYCLE_STORAGE_KEY = 'faixas-zine-img-cycle-index';
 const CURRENT_DD_MM_YYYY = (() => {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, '0');
@@ -173,6 +188,21 @@ async function registerPdfFont(pdf, { url, vfsFileName, fontFamily, fontStyle = 
   const binary = await getPdfFontBinary(url);
   pdf.addFileToVFS(vfsFileName, binary);
   pdf.addFont(vfsFileName, fontFamily, fontStyle);
+}
+
+const pdfImageDataCache = new Map();
+
+async function getPdfImageBase64(url) {
+  if (pdfImageDataCache.has(url)) {
+    return pdfImageDataCache.get(url);
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Unable to load PDF image from ${url} (${response.status})`);
+  }
+  const base64 = btoa(arrayBufferToBinaryString(await response.arrayBuffer()));
+  pdfImageDataCache.set(url, base64);
+  return base64;
 }
 
 function getDatasetBaseUrl() {
@@ -956,6 +986,13 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     pasteFontFamily = coverFontFamily,
     debugFontFamily = 'helvetica',
     setupPdf,
+    coverImageUrl = null,
+    showOuterBorder = true,
+    showFoldLines = true,
+    showCutLines = true,
+    centerTextInSlots = false,
+    showAssemblyDiagram = false,
+    showPageNumbers = false,
   } = options;
 
   const pdf = new jsPDF({
@@ -1017,37 +1054,61 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   pdf.setFontSize(fontSize);
 
   // Vertical fold lines: light dotted (inner only)
-  pdf.setDrawColor(180, 180, 180);
-  pdf.setLineWidth(0.4);
-  pdf.setLineDashPattern([1, 4], 0);
-  for (let col = 1; col < 4; col += 1) {
-    pdf.line(col * cellWidth, 0, col * cellWidth, pageHeight);
+  if (showFoldLines) {
+    pdf.setDrawColor(180, 180, 180);
+    pdf.setLineWidth(0.4);
+    pdf.setLineDashPattern([1, 4], 0);
+    for (let col = 1; col < 4; col += 1) {
+      pdf.line(col * cellWidth, 0, col * cellWidth, pageHeight);
+    }
+
+    // Horizontal grid lines (inner only): very light dotted
+    for (let row = 1; row < 4; row += 1) {
+      pdf.line(0, row * cellHeight, pageWidth, row * cellHeight);
+    }
+    pdf.setLineDashPattern([], 0);
   }
 
-  // Horizontal grid lines (inner only): very light dotted
-  for (let row = 1; row < 4; row += 1) {
-    pdf.line(0, row * cellHeight, pageWidth, row * cellHeight);
+  // Outer border: black dotted, stronger (omitted when showOuterBorder is false)
+  if (showOuterBorder) {
+    pdf.setDrawColor(0, 0, 0);
+    pdf.setLineWidth(0.8);
+    pdf.setLineDashPattern([2, 3], 0);
+    pdf.line(0, 0, pageWidth, 0);
+    pdf.line(0, pageHeight, pageWidth, pageHeight);
+    pdf.line(0, 0, 0, pageHeight);
+    pdf.line(pageWidth, 0, pageWidth, pageHeight);
   }
-
-  // Outer border: black dotted, stronger
-  pdf.setDrawColor(0, 0, 0);
-  pdf.setLineWidth(0.8);
-  pdf.setLineDashPattern([2, 3], 0);
-  pdf.line(0, 0, pageWidth, 0);
-  pdf.line(0, pageHeight, pageWidth, pageHeight);
-  pdf.line(0, 0, 0, pageHeight);
-  pdf.line(pageWidth, 0, pageWidth, pageHeight);
 
   pdf.setLineDashPattern([], 0);
 
   // Cut lines: gray dashed, prominent
-  pdf.setDrawColor(150, 150, 150);
-  pdf.setLineWidth(1.2);
-  pdf.setLineDashPattern([8, 6], 0);
-  pdf.line(0, cellHeight, cellWidth * 3, cellHeight);
-  pdf.line(cellWidth, cellHeight * 2, cellWidth * 4, cellHeight * 2);
-  pdf.line(0, cellHeight * 3, cellWidth * 3, cellHeight * 3);
-  pdf.setLineDashPattern([], 0);
+  if (showCutLines) {
+    pdf.setDrawColor(150, 150, 150);
+    pdf.setLineWidth(1.2);
+    pdf.setLineDashPattern([8, 6], 0);
+    pdf.line(0, cellHeight, cellWidth * 3, cellHeight);
+    pdf.line(cellWidth, cellHeight * 2, cellWidth * 4, cellHeight * 2);
+    pdf.line(0, cellHeight * 3, cellWidth * 3, cellHeight * 3);
+    pdf.setLineDashPattern([], 0);
+  }
+
+  // Cover spread image: drawn behind all text
+  if (coverImageUrl) {
+    try {
+      const coverImgBase64 = await getPdfImageBase64(coverImageUrl);
+      pdf.addImage(
+        coverImgBase64,
+        'PNG',
+        backCoverSlot.col * cellWidth,
+        backCoverSlot.row * cellHeight,
+        cellWidth * 2,
+        cellHeight,
+      );
+    } catch (err) {
+      console.warn('Zine cover image failed to load, skipping.', err);
+    }
+  }
 
   pdf.setTextColor(0, 0, 0);
 
@@ -1101,8 +1162,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
     pdf.setTextColor(...pasteTextColor);
     for (let i = 0; i < wrapped.length; i += 1) {
-      const lineWidth = pdf.getTextWidth(wrapped[i]);
-      pdf.text(wrapped[i], centerX + lineWidth / 2, startY - i * pasteLineGap, { angle: 180 });
+      pdf.text(wrapped[i], centerX, startY - i * pasteLineGap, { angle: 225 });
     }
     pdf.setTextColor(0, 0, 0);
     pdf.setFont(coverFontFamily, 'normal');
@@ -1111,6 +1171,170 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
   drawPasteInstruction(pasteBackCoverSlot, ZINE_PASTE_FRONT_COVER_TEXT);
   drawPasteInstruction(pasteFrontCoverSlot, ZINE_PASTE_BACK_COVER_TEXT);
+
+  if (showAssemblyDiagram) {
+    // For row-0 cells (upside-down in PDF): transform reader-space coords → PDF coords.
+    // Reader origin = cell top-left as seen after flipping the sheet.
+    // T(ox, oy, rx, ry) → [pdfX, pdfY]
+    const T = (ox, oy, rx, ry) => [ox + cellWidth - rx, oy + cellHeight - ry];
+    const rLine = (ox, oy, x1, y1, x2, y2) => {
+      const [px1, py1] = T(ox, oy, x1, y1);
+      const [px2, py2] = T(ox, oy, x2, y2);
+      pdf.line(px1, py1, px2, py2);
+    };
+    const rText = (ox, oy, str, rx, ry) => {
+      const [px, py] = T(ox, oy, rx, ry);
+      pdf.text(str, px, py, { angle: 180 });
+    };
+
+    const diagPad = 11;
+    const mw = 82;
+    const mh = Math.round(mw * pageHeight / pageWidth); // A4 proportion ≈ 116pt
+    const cw = mw / 4;
+    const rh = mh / 4;
+    const mx = (cellWidth - mw) / 2;
+    const my = diagPad + 10;
+
+    // ── Slot (0,0): mini-sheet schematic ──
+    const ox0 = pasteBackCoverSlot.col * cellWidth;
+    const oy0 = pasteBackCoverSlot.row * cellHeight;
+
+    pdf.setFont(bodyFontFamily, 'normal');
+    pdf.setFontSize(7);
+    pdf.setTextColor(70, 70, 70);
+    rText(ox0, oy0, 'como dobrar e cortar:', diagPad, diagPad);
+
+    // Sheet outline
+    pdf.setDrawColor(190, 190, 190);
+    pdf.setLineWidth(0.5);
+    pdf.setLineDashPattern([], 0);
+    rLine(ox0, oy0, mx, my, mx + mw, my);
+    rLine(ox0, oy0, mx + mw, my, mx + mw, my + mh);
+    rLine(ox0, oy0, mx + mw, my + mh, mx, my + mh);
+    rLine(ox0, oy0, mx, my + mh, mx, my);
+
+    // Fold lines: 3 vertical + 3 horizontal dotted (full side-to-side)
+    pdf.setLineDashPattern([2, 2], 0);
+    pdf.setDrawColor(190, 190, 190);
+    pdf.setLineWidth(0.4);
+    for (let c = 1; c <= 3; c += 1) {
+      rLine(ox0, oy0, mx + c * cw, my, mx + c * cw, my + mh);
+    }
+    for (let r = 1; r <= 3; r += 1) {
+      rLine(ox0, oy0, mx, my + r * rh, mx + mw, my + r * rh);
+    }
+
+    // Cut lines: 3 horizontal dashed, partial (matching actual zine pattern)
+    pdf.setLineDashPattern([3, 1.5], 0);
+    pdf.setDrawColor(190, 190, 190);
+    pdf.setLineWidth(0.8);
+    rLine(ox0, oy0, mx,        my + rh,       mx + 3 * cw, my + rh);
+    rLine(ox0, oy0, mx + cw,   my + 2 * rh,   mx + mw,     my + 2 * rh);
+    rLine(ox0, oy0, mx,        my + 3 * rh,   mx + 3 * cw, my + 3 * rh);
+    pdf.setLineDashPattern([], 0);
+
+    // ── Cell labels ──
+    // Normal-orientation cells (rows 1 & 3): rendered right-reading in the diagram.
+    // Inverted-orientation cells (rows 0 & 2): rendered upside-down to match the
+    // physical paper, using angle:0 (counteracts the slot's 180° flip).
+    pdf.setFontSize(5);
+    pdf.setFont(bodyFontFamily, 'normal');
+    pdf.setTextColor(110, 110, 110);
+    const lblLH = 6;
+    const normalCellLbls = [
+      { r: 3, c: 0, lines: ['contra', 'capa'] },
+      { r: 3, c: 1, lines: ['capa'] },
+      { r: 3, c: 2, lines: ['01'] },
+      { r: 3, c: 3, lines: ['02'] },
+      { r: 1, c: 0, lines: ['07'] },
+      { r: 1, c: 1, lines: ['08'] },
+      { r: 1, c: 2, lines: ['09'] },
+      { r: 1, c: 3, lines: ['10'] },
+    ];
+    normalCellLbls.forEach(({ r, c, lines }) => {
+      lines.forEach((line, i) => {
+        rText(ox0, oy0, line, mx + c * cw + 2, my + r * rh + 5 + i * lblLH);
+      });
+    });
+    const invertedCellLbls = [
+      { r: 0, c: 0, lines: ['inst.'] },
+      { r: 0, c: 1, lines: ['inst.'] },
+      { r: 0, c: 2, lines: ['12'] },
+      { r: 0, c: 3, lines: ['11'] },
+      { r: 2, c: 0, lines: ['06'] },
+      { r: 2, c: 1, lines: ['05'] },
+      { r: 2, c: 2, lines: ['04'] },
+      { r: 2, c: 3, lines: ['03'] },
+    ];
+    invertedCellLbls.forEach(({ r, c, lines }) => {
+      lines.forEach((line, i) => {
+        // Anchor at right edge of cell; text flows left (angle:0 in PDF space = leftward in reader space after flip).
+        const rx = mx + (c + 1) * cw - 2;
+        const ry = my + (r + 1) * rh - 5 - i * lblLH;
+        const [px, py] = T(ox0, oy0, rx, ry);
+        pdf.text(line, px, py);
+      });
+    });
+    pdf.setTextColor(110, 110, 110);
+
+    // Legend
+    const ly = my + mh + 11;
+    pdf.setFontSize(6);
+    pdf.setLineDashPattern([2, 2], 0);
+    pdf.setDrawColor(110, 110, 110);
+    pdf.setLineWidth(0.4);
+    rLine(ox0, oy0, diagPad, ly + 2, diagPad + 12, ly + 2);
+    rText(ox0, oy0, ' dobrar', diagPad + 12, ly);
+    pdf.setLineDashPattern([3, 1.5], 0);
+    pdf.setDrawColor(110, 110, 110);
+    pdf.setLineWidth(0.8);
+    rLine(ox0, oy0, diagPad, ly + 11, diagPad + 12, ly + 11);
+    pdf.setLineWidth(0.4);
+    rText(ox0, oy0, ' cortar', diagPad + 12, ly + 9);
+    pdf.setLineDashPattern([], 0);
+
+    // ── Slot (0,1): step-by-step text ──
+    const ox1 = pasteFrontCoverSlot.col * cellWidth;
+    const oy1 = pasteFrontCoverSlot.row * cellHeight;
+
+    pdf.setFont(bodyFontFamily, 'normal');
+    pdf.setFontSize(7);
+    pdf.setTextColor(110, 110, 110);
+
+    const assemblySteps = [
+      'como montar:',
+      '',
+      '1\xB7 dobrar ao comprido pelas',
+      '   3 linhas verticais,',
+      '   em forma de acorde\xE3o.',
+      '',
+      '2\xB7 dobrar tamb\xE9m pelas',
+      '   3 linhas horizontais.',
+      '',
+      '3\xB7 fazer os 3 cortes',
+      '   horizontais (parciais,',
+      '   como indicado).',
+      '',
+      '4\xB7 come\xE7ar a dobrar com',
+      '   a capa e contracapa,',
+      '   dobrando e virando para',
+      '   colocar as p\xE1ginas em ordem.',
+      '',
+      '5\xB7 no final, colar estas',
+      '   instru\xE7\xF5es no verso da',
+      '   capa e contracapa.',
+    ];
+    const stepLineH = 9;
+    assemblySteps.forEach((line, i) => {
+      if (line) rText(ox1, oy1, line, diagPad, diagPad + i * stepLineH + 6);
+    });
+
+    // Reset draw state
+    pdf.setTextColor(0, 0, 0);
+    pdf.setDrawColor(0, 0, 0);
+    pdf.setLineWidth(0.4);
+    pdf.setLineDashPattern([], 0);
+  }
 
   if (ENABLE_ZINE_GRID_DEBUG_LABELS) {
     pdf.setFont(debugFontFamily, 'normal');
@@ -1219,37 +1443,93 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
         }
       }
 
+      // Append '— x' in gray to the last line of the last slot of this faixa
+      const pageSuffix = (showPageNumbers && faixaQueue.length === 0 && !isEmptyTraversalPlaceholder)
+        ? ` \u00B7 ${String(pageNumber).padStart(2, '0')}` : null;
+
+      // Index of last non-blank line (for non-centered branches)
+      let lastNonBlankIdx = -1;
+      if (pageSuffix) {
+        for (let i = renderedLines.length - 1; i >= 0; i -= 1) {
+          if (renderedLines[i] !== '') { lastNonBlankIdx = i; break; }
+        }
+      }
+
       if (!slot.rotate180) {
         const shouldCenterPlaceholder = isEmptyTraversalPlaceholder && pageNumber === 1;
-        if (shouldCenterPlaceholder) {
-          const contentHeight = Math.max(0, (renderedLines.length - 1) * lineHeight);
+        if (shouldCenterPlaceholder || centerTextInSlots) {
+          const nonBlankLines = renderedLines.filter((l) => l !== '');
+          // Measure last line with suffix for correct centering
+          const displayLines = nonBlankLines.map((l, li) =>
+            pageSuffix && li === nonBlankLines.length - 1 ? l + pageSuffix : l
+          );
+          const contentHeight = Math.max(0, (displayLines.length - 1) * lineHeight);
           let y = cellY + cellHeight / 2 - contentHeight / 2;
-          for (const line of renderedLines) {
-            if (line) {
-              const lineWidth = pdf.getTextWidth(line);
-              const x = cellX + cellWidth / 2 - lineWidth / 2;
-              pdf.text(line, x, y);
+          for (let li = 0; li < displayLines.length; li += 1) {
+            const isLastLine = pageSuffix && li === displayLines.length - 1;
+            const baseLine = nonBlankLines[li];
+            const fullWidth = pdf.getTextWidth(displayLines[li]);
+            const x = cellX + cellWidth / 2 - fullWidth / 2;
+            pdf.text(baseLine, x, y);
+            if (isLastLine) {
+              pdf.setTextColor(180, 180, 180);
+              pdf.text(pageSuffix, x + pdf.getTextWidth(baseLine), y);
+              pdf.setTextColor(0, 0, 0);
             }
             y += lineHeight;
           }
         } else {
           let y = cellY + cellPadding + fontSize;
           const x = cellX + cellPadding;
-          for (const line of renderedLines) {
+          for (let li = 0; li < renderedLines.length; li += 1) {
+            const line = renderedLines[li];
             if (line) {
               pdf.text(line, x, y);
+              if (pageSuffix && li === lastNonBlankIdx) {
+                pdf.setTextColor(180, 180, 180);
+                pdf.text(pageSuffix, x + pdf.getTextWidth(line), y);
+                pdf.setTextColor(0, 0, 0);
+              }
             }
             y += lineHeight;
           }
         }
       } else {
-        let y = cellY + cellHeight - cellPadding - fontSize;
-        const x = cellX + cellWidth - cellPadding;
-        for (const line of renderedLines) {
-          if (line) {
-            pdf.text(line, x, y, { angle: 180 });
+        if (centerTextInSlots) {
+          const nonBlankLines = renderedLines.filter((l) => l !== '');
+          const displayLines = nonBlankLines.map((l, li) =>
+            pageSuffix && li === nonBlankLines.length - 1 ? l + pageSuffix : l
+          );
+          const contentHeight = Math.max(0, (displayLines.length - 1) * lineHeight);
+          let y = cellY + cellHeight / 2 + contentHeight / 2;
+          for (let li = 0; li < displayLines.length; li += 1) {
+            const isLastLine = pageSuffix && li === displayLines.length - 1;
+            const baseLine = nonBlankLines[li];
+            const fullWidth = pdf.getTextWidth(displayLines[li]);
+            const x = cellX + cellWidth / 2 + fullWidth / 2;
+            pdf.text(baseLine, x, y, { angle: 180 });
+            if (isLastLine) {
+              pdf.setTextColor(180, 180, 180);
+              pdf.text(pageSuffix, x - pdf.getTextWidth(baseLine), y, { angle: 180 });
+              pdf.setTextColor(0, 0, 0);
+            }
+            y -= lineHeight;
           }
-          y -= lineHeight;
+        } else {
+          let y = cellY + cellHeight - cellPadding - fontSize;
+          const x = cellX + cellWidth - cellPadding;
+          for (let li = 0; li < renderedLines.length; li += 1) {
+            const line = renderedLines[li];
+            if (line) {
+              pdf.text(line, x, y, { angle: 180 });
+              if (pageSuffix && li === lastNonBlankIdx) {
+                pdf.setTextColor(180, 180, 180);
+                pdf.text(pageSuffix, x - pdf.getTextWidth(line), y, { angle: 180 });
+                pdf.setTextColor(0, 0, 0);
+              }
+            }
+            y -= lineHeight;
+          }
         }
       }
     }
@@ -1270,6 +1550,47 @@ async function generateZinePdfV2Lora(sourceText, fileName) {
     backCoverFontFamily: ZINE_LORA_FONT_FAMILY,
     pasteFontFamily: ZINE_LORA_FONT_FAMILY,
     debugFontFamily: 'helvetica',
+    coverImageUrl: ZINE_COVER_IMAGE_URL,
+    setupPdf: async (pdf) => {
+      await registerPdfFont(pdf, {
+        url: ZINE_LORA_FONT_URL,
+        vfsFileName: ZINE_LORA_FONT_VFS_NAME,
+        fontFamily: ZINE_LORA_FONT_FAMILY,
+        fontStyle: 'normal',
+      });
+      await registerPdfFont(pdf, {
+        url: ZINE_LORA_ITALIC_FONT_URL,
+        vfsFileName: ZINE_LORA_ITALIC_FONT_VFS_NAME,
+        fontFamily: ZINE_LORA_FONT_FAMILY,
+        fontStyle: 'italic',
+      });
+    },
+  });
+}
+
+async function generateZinePdfV3Lora(sourceText, fileName) {
+  let coverImageUrl;
+  if (CYCLE_ZINE_IMG) {
+    const stored = parseInt(localStorage.getItem(ZINE_V3_COVER_IMAGE_CYCLE_STORAGE_KEY) ?? '0', 10);
+    const currentIndex = isNaN(stored) ? 0 : stored % ZINE_V3_COVER_IMAGE_CYCLE.length;
+    coverImageUrl = ZINE_V3_COVER_IMAGE_CYCLE[currentIndex];
+    localStorage.setItem(ZINE_V3_COVER_IMAGE_CYCLE_STORAGE_KEY, String((currentIndex + 1) % ZINE_V3_COVER_IMAGE_CYCLE.length));
+  } else {
+    coverImageUrl = ZINE_V3_COVER_IMAGE_STATIC;
+  }
+  return generateZinePdfV2Layout(sourceText, fileName, {
+    bodyFontFamily: ZINE_LORA_FONT_FAMILY,
+    coverFontFamily: ZINE_LORA_FONT_FAMILY,
+    backCoverFontFamily: ZINE_LORA_FONT_FAMILY,
+    pasteFontFamily: ZINE_LORA_FONT_FAMILY,
+    debugFontFamily: 'helvetica',
+    coverImageUrl: coverImageUrl,
+    showOuterBorder: false,
+    showFoldLines: false,
+    showCutLines: false,
+    centerTextInSlots: true,
+    showAssemblyDiagram: true,
+    showPageNumbers: true,
     setupPdf: async (pdf) => {
       await registerPdfFont(pdf, {
         url: ZINE_LORA_FONT_URL,
@@ -1304,6 +1625,14 @@ async function exportZinePdf({ sourceText, fileName, stylePreference }) {
   const resolvedStyle = resolveZinePdfStyle(stylePreference);
 
   switch (resolvedStyle) {
+    case ZINE_PDF_STYLES.ZINE_V3:
+      try {
+        await generateZinePdfV3Lora(sourceText, fileName);
+      } catch (error) {
+        console.warn('V3 zine export failed, falling back to zine-v2.', error);
+        await generateZinePdfV2(sourceText, fileName);
+      }
+      break;
     case ZINE_PDF_STYLES.ZINE_V2_LORA:
       try {
         await generateZinePdfV2Lora(sourceText, fileName);
