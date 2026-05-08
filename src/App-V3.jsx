@@ -192,16 +192,30 @@ async function registerPdfFont(pdf, { url, vfsFileName, fontFamily, fontStyle = 
 
 const pdfImageDataCache = new Map();
 
-async function getPdfImageBase64(url) {
-  if (pdfImageDataCache.has(url)) {
-    return pdfImageDataCache.get(url);
+async function getPdfImageBase64(url, { maxWidth = 4800, quality = 1.0 } = {}) {
+  const cacheKey = `${url}|${maxWidth}|${quality}`;
+  if (pdfImageDataCache.has(cacheKey)) {
+    return pdfImageDataCache.get(cacheKey);
   }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Unable to load PDF image from ${url} (${response.status})`);
-  }
-  const base64 = btoa(arrayBufferToBinaryString(await response.arrayBuffer()));
-  pdfImageDataCache.set(url, base64);
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.crossOrigin = 'anonymous';
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.src = url;
+  });
+  const scale = Math.min(1, maxWidth / img.naturalWidth);
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+  pdfImageDataCache.set(cacheKey, base64);
   return base64;
 }
 
@@ -1099,7 +1113,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
       const coverImgBase64 = await getPdfImageBase64(coverImageUrl);
       pdf.addImage(
         coverImgBase64,
-        'PNG',
+        'JPEG',
         backCoverSlot.col * cellWidth,
         backCoverSlot.row * cellHeight,
         cellWidth * 2,
