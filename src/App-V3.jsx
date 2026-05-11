@@ -1441,6 +1441,8 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
       const cellX = slot.col * cellWidth;
       const cellY = slot.row * cellHeight;
+      const nudgedPages = new Set([1, 2, 11, 12]);
+      const verticalNudge = nudgedPages.has(pageNumber) ? lineHeight : 0;
       const renderedLines = [];
 
       while (faixaQueue.length > 0 && renderedLines.length < maxLines) {
@@ -1478,7 +1480,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
             pageSuffix && li === nonBlankLines.length - 1 ? l + pageSuffix : l
           );
           const contentHeight = Math.max(0, (displayLines.length - 1) * lineHeight);
-          let y = cellY + cellHeight / 2 - contentHeight / 2;
+          let y = cellY + cellHeight / 2 - contentHeight / 2 + verticalNudge;
           for (let li = 0; li < displayLines.length; li += 1) {
             const isLastLine = pageSuffix && li === displayLines.length - 1;
             const baseLine = nonBlankLines[li];
@@ -1493,7 +1495,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
             y += lineHeight;
           }
         } else {
-          let y = cellY + cellPadding + fontSize;
+          let y = cellY + cellPadding + fontSize + verticalNudge;
           const x = cellX + cellPadding;
           for (let li = 0; li < renderedLines.length; li += 1) {
             const line = renderedLines[li];
@@ -1515,7 +1517,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
             pageSuffix && li === nonBlankLines.length - 1 ? l + pageSuffix : l
           );
           const contentHeight = Math.max(0, (displayLines.length - 1) * lineHeight);
-          let y = cellY + cellHeight / 2 + contentHeight / 2;
+          let y = cellY + cellHeight / 2 + contentHeight / 2 - verticalNudge;
           for (let li = 0; li < displayLines.length; li += 1) {
             const isLastLine = pageSuffix && li === displayLines.length - 1;
             const baseLine = nonBlankLines[li];
@@ -1530,7 +1532,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
             y -= lineHeight;
           }
         } else {
-          let y = cellY + cellHeight - cellPadding - fontSize;
+          let y = cellY + cellHeight - cellPadding - fontSize - verticalNudge;
           const x = cellX + cellWidth - cellPadding;
           for (let li = 0; li < renderedLines.length; li += 1) {
             const line = renderedLines[li];
