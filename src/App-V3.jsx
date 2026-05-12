@@ -53,6 +53,18 @@ const ZINE_V3_COVER_IMAGE_CYCLE = [
 const ZINE_V3_COVER_IMAGE_STATIC = `${import.meta.env.BASE_URL}img/zine-img-V7.png`;
 const CYCLE_ZINE_IMG = true;
 const ZINE_V3_COVER_IMAGE_CYCLE_STORAGE_KEY = 'faixas-zine-img-cycle-index';
+// When false, faixas are placed only on even pages (2,4,6,8,10,12),
+// one per spread. Set to true to restore the original all-pages behaviour.
+const FAIXAS_ON_ALL_PAGES = false;
+const IMAGE_POSITION_RANDOM = false;
+const IMAGE_POSITION_CENTERED = true;
+const ZINE_DECORATIVE_IMAGE_URLS = [
+  `${import.meta.env.BASE_URL}img/faixas-01.png`,
+  `${import.meta.env.BASE_URL}img/faixas-02.png`,
+  `${import.meta.env.BASE_URL}img/faixas-03.png`,
+  `${import.meta.env.BASE_URL}img/faixas-04.png`,
+  `${import.meta.env.BASE_URL}img/faixas-05.png`,
+];
 const CURRENT_DD_MM_YYYY = (() => {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, '0');
@@ -1007,6 +1019,15 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     centerTextInSlots = false,
     showAssemblyDiagram = false,
     showPageNumbers = false,
+    // 'suffix': append · NN after each faixa (original behaviour)
+    // 'random': scatter · NN at a random position in each cell, drawn behind text
+    pageNumberStyle = 'suffix',
+    // When false, faixas are placed only on even pages (2,4,6,8,10,12)
+    faixasOnAllPages = true,
+    // Array of image URLs to scatter on blank odd pages (ignored when faixasOnAllPages=true)
+    decorativeImageUrls = null,
+    // 'random': each image in a random zone; 'centered': always zone 4 (centre)
+    decorativeImagePosition = 'random',
   } = options;
 
   const pdf = new jsPDF({
@@ -1168,7 +1189,8 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   const pasteLineGap = 12;
   const drawPasteInstruction = (slot, text) => {
     const centerX = slot.col * cellWidth + cellWidth / 2;
-    const centerY = slot.row * cellHeight + cellHeight * 0.50;
+    // Row-0 slots are upside-down; subtract pasteLineGap to nudge text down in reader space
+    const centerY = slot.row * cellHeight + cellHeight * 0.50 - pasteLineGap;
     pdf.setFont(pasteFontFamily, 'normal');
     pdf.setFontSize(10);
     const wrapped = pdf.splitTextToSize(text, coverTextWidth);
@@ -1202,12 +1224,13 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     };
 
     const diagPad = 11;
+    const stepLineH = 9;
     const mw = 82;
     const mh = Math.round(mw * pageHeight / pageWidth); // A4 proportion ≈ 116pt
     const cw = mw / 4;
     const rh = mh / 4;
     const mx = (cellWidth - mw) / 2;
-    const my = diagPad + 10;
+    const my = diagPad + 10 + stepLineH;
 
     // ── Slot (0,0): mini-sheet schematic ──
     const ox0 = pasteBackCoverSlot.col * cellWidth;
@@ -1216,7 +1239,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     pdf.setFont(bodyFontFamily, 'normal');
     pdf.setFontSize(7);
     pdf.setTextColor(70, 70, 70);
-    rText(ox0, oy0, 'como dobrar e cortar:', diagPad, diagPad);
+    rText(ox0, oy0, 'como dobrar e cortar:', diagPad, diagPad + stepLineH);
 
     // Sheet outline
     pdf.setDrawColor(190, 190, 190);
@@ -1338,9 +1361,8 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
       '   instru\xE7\xF5es no verso da',
       '   capa e contracapa.',
     ];
-    const stepLineH = 9;
     assemblySteps.forEach((line, i) => {
-      if (line) rText(ox1, oy1, line, diagPad, diagPad + i * stepLineH + 6);
+      if (line) rText(ox1, oy1, line, diagPad, diagPad + stepLineH + i * stepLineH + 6);
     });
 
     // Reset draw state
@@ -1369,13 +1391,12 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   pdf.setFontSize(fontSize);
   pdf.setTextColor(0, 0, 0);
 
-  const pageOrder = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const textWidth = cellWidth - cellPadding * 2;
   const maxLines = Math.max(1, Math.floor((cellHeight - cellPadding * 2) / lineHeight));
   const isEmptyTraversalPlaceholder =
     sourceText.trim() === ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT;
 
-  // Split source text into individual faixas (separated by blank lines)
+  // ── Parse faixas and build pageOrder before drawing page numbers / decorative images ──
   const rawFaixaLines = sourceText.split('\n');
   const allFaixas = [];
   let currentFaixaLines = [];
@@ -1389,7 +1410,6 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   }
   if (currentFaixaLines.length > 0) allFaixas.push(currentFaixaLines);
 
-  // Count how many slots each faixa occupies when laid out
   const countSlotsForFaixa = (lines) => {
     const q = lines.map((l) => ({ text: l }));
     let slots = 0;
@@ -1414,28 +1434,187 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
   const slotCounts = allFaixas.map((f) => countSlotsForFaixa([...f]));
 
-  // Keep the most recent faixas that fit within available slots; push older ones off
-  const maxSlots = pageOrder.length;
-  let totalSlots = 0;
-  let includedCount = 0;
-  for (let i = allFaixas.length - 1; i >= 0; i -= 1) {
-    if (totalSlots + slotCounts[i] <= maxSlots) {
-      totalSlots += slotCounts[i];
-      includedCount += 1;
-    } else {
-      break;
+  // Odd pages claimed by multi-slot faixas (excluded from decorative images)
+  const spreadFaixaOddPages = new Set();
+  // Pages that receive a pre-drawn random page number (all non-final pages of each faixa)
+  const randomPageNumbers = new Set();
+  let pageOrder;
+  let trimmedFaixas;
+  let faixaAssignedSlots;
+
+  if (faixasOnAllPages) {
+    pageOrder = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const maxSlots = pageOrder.length;
+    let totalSlots = 0;
+    let includedCount = 0;
+    for (let i = allFaixas.length - 1; i >= 0; i -= 1) {
+      if (totalSlots + slotCounts[i] <= maxSlots) {
+        totalSlots += slotCounts[i];
+        includedCount += 1;
+      } else {
+        break;
+      }
+    }
+    const startIdx = allFaixas.length - includedCount;
+    trimmedFaixas = allFaixas.slice(startIdx);
+    faixaAssignedSlots = slotCounts.slice(startIdx);
+    // In faixasOnAllPages mode, odd pages always get pre-drawn random numbers
+    for (let pn = 1; pn <= 12; pn += 2) randomPageNumbers.add(pn);
+  } else {
+    // Spread mode: faixas occupy 1 or more spread pairs; long faixas can span all 6
+    const spreadPairs = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]];
+    const maxSpreads = spreadPairs.length;
+
+    // Number of spread pairs each faixa needs (ceil(slots/2)); cap at maxSpreads
+    const spreadCounts = slotCounts.map((c) => Math.min(Math.ceil(c / 2), maxSpreads));
+
+    // Trim: include most-recent faixas that fit within 6 spreads
+    let totalSpreads = 0;
+    let includedCount = 0;
+    for (let i = allFaixas.length - 1; i >= 0; i -= 1) {
+      if (totalSpreads + spreadCounts[i] <= maxSpreads) {
+        totalSpreads += spreadCounts[i];
+        includedCount += 1;
+      } else {
+        if (includedCount === 0) includedCount = 1; // single huge faixa: include it, capped
+        break;
+      }
+    }
+    const startIdx = allFaixas.length - includedCount;
+    trimmedFaixas = allFaixas.slice(startIdx);
+    const trimmedSlotCounts = slotCounts.slice(startIdx);
+    const trimmedSpreadCounts = spreadCounts.slice(startIdx);
+    // Effective slot count per faixa (capped at available spread pages)
+    faixaAssignedSlots = trimmedSlotCounts.map((c, i) => Math.min(c, trimmedSpreadCounts[i] * 2));
+
+    // Build pageOrder: short faixas (1 slot) use even page only; multi-slot use [odd, even] pairs
+    pageOrder = [];
+    let spreadIdx = 0;
+    for (let fi = 0; fi < trimmedFaixas.length; fi += 1) {
+      const slotsNeeded = faixaAssignedSlots[fi];
+      const spreadsNeeded = trimmedSpreadCounts[fi];
+      const faixaPages = [];
+
+      if (slotsNeeded === 1) {
+        // Single page: use even page of this spread
+        if (spreadIdx < maxSpreads) {
+          faixaPages.push(spreadPairs[spreadIdx][1]);
+          spreadIdx += 1;
+        }
+      } else {
+        // Multi-page: consume [odd, even] from consecutive spreads until slots filled
+        let remaining = slotsNeeded;
+        for (let s = 0; s < spreadsNeeded && spreadIdx < maxSpreads && remaining > 0; s += 1) {
+          const pair = spreadPairs[spreadIdx];
+          spreadIdx += 1;
+          faixaPages.push(pair[0]); // odd first
+          remaining -= 1;
+          if (remaining > 0) {
+            faixaPages.push(pair[1]); // then even
+            remaining -= 1;
+          }
+        }
+      }
+
+      for (const pg of faixaPages) pageOrder.push(pg);
+
+      // All pages except the last are non-final → pre-drawn random page number
+      for (let s = 0; s < faixaPages.length - 1; s += 1) {
+        randomPageNumbers.add(faixaPages[s]);
+        if (faixaPages[s] % 2 !== 0) spreadFaixaOddPages.add(faixaPages[s]);
+      }
     }
   }
-  const trimmedFaixas = allFaixas.slice(allFaixas.length - includedCount);
 
-  // Render: each faixa begins on a fresh slot (page break between faixas)
+  // Random page numbers (non-final pages): drawn here so they sit behind all poem text
+  if (showPageNumbers && pageNumberStyle === 'random' && !isEmptyTraversalPlaceholder) {
+    pdf.setFont(bodyFontFamily, 'italic');
+    pdf.setFontSize(fontSize);
+    pdf.setTextColor(210, 210, 210);
+    for (const pn of [...randomPageNumbers].sort((a, b) => a - b)) {
+      const pnSlot = slotByPageNumber[pn];
+      if (!pnSlot) continue;
+      const label = `\u00B7 ${String(pn).padStart(2, '0')}`;
+      const lw = pdf.getTextWidth(label);
+      const lh = fontSize;
+      const ox = pnSlot.col * cellWidth;
+      const oy = pnSlot.row * cellHeight;
+      const pad = cellPadding + 4;
+      const availW = cellWidth - pad * 2 - lw;
+      const availH = cellHeight - pad * 2 - lh;
+      // Only place in the left or right third column; exclude middle column entirely.
+      const outerZones = [0, 3, 5, 8];
+      const zone = outerZones[Math.floor(Math.random() * outerZones.length)];
+      const zoneCol = zone % 3;
+      const zoneRow = Math.floor(zone / 3);
+      const rx = (zoneCol + Math.random()) / 3;
+      const ry = (zoneRow + Math.random()) / 3;
+      if (!pnSlot.rotate180) {
+        const x = ox + pad + rx * availW;
+        const y = oy + pad + lh + ry * availH;
+        pdf.text(label, x, y);
+      } else {
+        const x = ox + cellWidth - pad - rx * availW;
+        const y = oy + cellHeight - pad - ry * availH;
+        pdf.text(label, x, y, { angle: 180 });
+      }
+    }
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFont(bodyFontFamily, 'normal');
+  }
+
+  // Decorative images on blank odd pages (only when faixas are on even pages only)
+  if (!faixasOnAllPages && decorativeImageUrls && decorativeImageUrls.length > 0) {
+    // Exclude odd pages claimed by multi-page faixas (they have poem text, not images)
+    const oddPages = [1, 3, 5, 7, 9, 11].filter((p) => !spreadFaixaOddPages.has(p));
+    // Shuffle odd pages and drop one to leave a blank page
+    const shuffledOdd = [...oddPages].sort(() => Math.random() - 0.5);
+    const selectedPages = shuffledOdd.slice(0, decorativeImageUrls.length);
+    // Shuffle images so assignment is random
+    const shuffledImgs = [...decorativeImageUrls].sort(() => Math.random() - 0.5);
+    const zoneW = cellWidth / 3;
+    const zoneH = cellHeight / 3;
+    for (let i = 0; i < selectedPages.length; i += 1) {
+      const pn = selectedPages[i];
+      const imgUrl = shuffledImgs[i];
+      const slot = slotByPageNumber[pn];
+      if (!slot) continue;
+      try {
+        const imgBase64 = await getPdfImageBase64(imgUrl);
+        const zone = decorativeImagePosition === 'centered' ? 4 : Math.floor(Math.random() * 9);
+        const zoneCol = zone % 3;
+        const zoneRow = Math.floor(zone / 3);
+        const ox = slot.col * cellWidth;
+        const oy = slot.row * cellHeight;
+        if (!slot.rotate180) {
+          const x = ox + zoneCol * zoneW;
+          const y = oy + zoneRow * zoneH;
+          pdf.addImage(imgBase64, 'JPEG', x, y, zoneW, zoneH);
+        } else {
+          // In reader space zone (zoneCol, zoneRow) maps to mirrored PDF position
+          const pdfZoneCol = 2 - zoneCol;
+          const pdfZoneRow = 2 - zoneRow;
+          const x = ox + pdfZoneCol * zoneW;
+          const y = oy + pdfZoneRow * zoneH;
+          pdf.addImage(imgBase64, 'JPEG', x, y, zoneW, zoneH);
+        }
+      } catch (err) {
+        console.warn(`Decorative image failed to load: ${imgUrl}`, err);
+      }
+    }
+  }
+  // Render: each faixa begins on a fresh slot; multi-page faixas use odd+even spread
   let slotIndex = 0;
-  for (const faixa of trimmedFaixas) {
+  for (let fi = 0; fi < trimmedFaixas.length; fi += 1) {
+    const faixa = trimmedFaixas[fi];
     const faixaQueue = faixa.map((l) => ({ text: l }));
+    const assignedSlots = faixaAssignedSlots[fi];
+    let usedSlots = 0;
 
-    while (faixaQueue.length > 0 && slotIndex < pageOrder.length) {
+    while (faixaQueue.length > 0 && slotIndex < pageOrder.length && usedSlots < assignedSlots) {
       const pageNumber = pageOrder[slotIndex];
       slotIndex += 1;
+      usedSlots += 1;
       const slot = slotByPageNumber[pageNumber];
       if (!slot) continue;
 
@@ -1459,8 +1638,11 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
         }
       }
 
-      // Append '— x' in gray to the last line of the last slot of this faixa
-      const pageSuffix = (showPageNumbers && faixaQueue.length === 0 && !isEmptyTraversalPlaceholder)
+      // Append '· NN' in gray to the last line of the last slot of this faixa (suffix style)
+      // Also used for the final page of any faixa when pageNumberStyle === 'random'
+      const isSuffixPage = pageNumberStyle === 'suffix'
+        || (pageNumberStyle === 'random' && (pageNumber % 2 === 0 || !faixasOnAllPages));
+      const pageSuffix = (showPageNumbers && isSuffixPage && faixaQueue.length === 0 && !isEmptyTraversalPlaceholder)
         ? ` \u00B7 ${String(pageNumber).padStart(2, '0')}` : null;
 
       // Index of last non-blank line (for non-centered branches)
@@ -1607,6 +1789,10 @@ async function generateZinePdfV3Lora(sourceText, fileName) {
     centerTextInSlots: true,
     showAssemblyDiagram: true,
     showPageNumbers: true,
+    pageNumberStyle: 'random',
+    faixasOnAllPages: FAIXAS_ON_ALL_PAGES,
+    decorativeImageUrls: FAIXAS_ON_ALL_PAGES ? null : ZINE_DECORATIVE_IMAGE_URLS,
+    decorativeImagePosition: IMAGE_POSITION_CENTERED ? 'centered' : 'random',
     setupPdf: async (pdf) => {
       await registerPdfFont(pdf, {
         url: ZINE_LORA_FONT_URL,
@@ -2600,7 +2786,7 @@ export default function App() {
                 <br />
                 Código: Gemini3, Claude Sonnet 4.5 e Terhi Marttila
                 <br />
-                Agradeçimentos: Jorge Gonçalves, Né Barros, Watson Hartsoe, Jay David Bolter
+                Agradeçimentos: Jorge Gonçalves, Né Barros, Kati Rusanen, Watson Hartsoe, Jay David Bolter
               </p>
               <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
                 ➤ precisas de ajuda a dobrar o zine? - segue <a target="_blank" rel="noreferrer"
