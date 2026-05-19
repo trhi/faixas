@@ -3,6 +3,7 @@ import {
   Download,
   FileUp,
   Info,
+  Music,
   Pause,
   Play,
   RotateCcw,
@@ -15,7 +16,16 @@ import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
-const RNBO_PATCH_PATH = `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`;
+// V1 = blip_test_01 (MIDI-only, transport-driven)
+// V2 = GRID_4 (stereo audio, transport-driven externally)
+// V3 = GRID_4 (stereo audio, fully self-contained — no transport driving)
+const RNBO_VERSION = 'V3'; // 'V1' | 'V2' | 'V3'
+const RNBO_PATCH_PATH = RNBO_VERSION === 'V1'
+  ? `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`
+  : `${import.meta.env.BASE_URL}rnbo/GRID_4.export.json`;
+const RNBO_V2_VOLUME = 0.6; // V2 initial volume sent to 'volume' inport (0–1 linear).
+const RNBO_V3_VOLUME = 0.7; // V3 initial volume sent to 'volume' inport (0–1 linear).
+const SNIPPET_GAIN = 2.5; // Gain applied to audio snippet playback (1.0 = original, >1 = amplify).
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
 const ENABLE_TRAVERSAL_CACHE = true;
@@ -59,11 +69,55 @@ const FAIXAS_ON_ALL_PAGES = false;
 const IMAGE_POSITION_RANDOM = false;
 const IMAGE_POSITION_CENTERED = true;
 const ZINE_DECORATIVE_IMAGE_URLS = [
-  `${import.meta.env.BASE_URL}img/faixas-01.png`,
-  `${import.meta.env.BASE_URL}img/faixas-02.png`,
-  `${import.meta.env.BASE_URL}img/faixas-03.png`,
-  `${import.meta.env.BASE_URL}img/faixas-04.png`,
-  `${import.meta.env.BASE_URL}img/faixas-05.png`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-06.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-07.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-08.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-09.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-10.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-11.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%202-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%202-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%202-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%202-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-06.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-07.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%203-08.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-06.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-07.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%204-08.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-06.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-07.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-08.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%205-09.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%206-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%206-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%206-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%206-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%206-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-01.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-02.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-03.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-04.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-05.svg`,
+  `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%207-06.svg`,
 ];
 const CURRENT_DD_MM_YYYY = (() => {
   const now = new Date();
@@ -76,7 +130,7 @@ const ZINE_FRONT_COVER_LINES = ['Faixas de', 'Rodagem do', 'Pensamento'];
 const ZINE_BACK_COVER_LINES = ['2026 —', 'Terhi Marttila', `— e Tu, ${CURRENT_DD_MM_YYYY}`];
 const ZINE_PASTE_BACK_COVER_TEXT = ['[colar no verso', 'da contracapa]'];
 const ZINE_PASTE_FRONT_COVER_TEXT = ['[colar no verso', '— — — da capa]'];
-const ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT = '[trilhar faixas\npara exportar\no teu caminho]';
+const ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT = ''; // no placeholder text — empty traversal renders nothing
 const APP_PALETTE_OLD = {
   bgMain: '#060a08',
   bgPanel: '#08100d',
@@ -179,6 +233,47 @@ function arrayBufferToBinaryString(arrayBuffer) {
   }
 
   return binary;
+}
+
+const pdfDecorativeImageCache = new Map();
+// Load an SVG decorative image: fetch text → render to canvas at 3× via blob URL
+// → return high-res PNG base64 + logical (viewBox) dimensions.
+// Returns { base64, width, height }.
+async function getPdfDecorativeImage(url) {
+  if (pdfDecorativeImageCache.has(url)) {
+    return pdfDecorativeImageCache.get(url);
+  }
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to load SVG: ${url} (${resp.status})`);
+  const svgText = await resp.text();
+
+  // Parse logical dimensions from viewBox (potrace always emits "viewBox="0 0 W H"")
+  const vbMatch = svgText.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  const logW = vbMatch ? parseFloat(vbMatch[1]) : 337;
+  const logH = vbMatch ? parseFloat(vbMatch[2]) : 474;
+
+  // Render SVG to canvas at 3× scale so the rotation step gets 1:1 pixel mapping
+  const renderScale = 3;
+  const blob = new Blob([svgText], { type: 'image/svg+xml' });
+  const blobUrl = URL.createObjectURL(blob);
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.width  = logW * renderScale;
+    el.height = logH * renderScale;
+    el.src = blobUrl;
+  });
+  URL.revokeObjectURL(blobUrl);
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = logW * renderScale;
+  canvas.height = logH * renderScale;
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  const base64 = canvas.toDataURL('image/png').split(',')[1];
+  const result = { base64, width: logW, height: logH };
+  pdfDecorativeImageCache.set(url, result);
+  return result;
 }
 
 async function getPdfFontBinary(url) {
@@ -1225,21 +1320,18 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
     const diagPad = 11;
     const stepLineH = 9;
-    const mw = 82;
-    const mh = Math.round(mw * pageHeight / pageWidth); // A4 proportion ≈ 116pt
+    const mw = (cellWidth - 8) * 0.85;
+    const mh = Math.round(mw * pageHeight / pageWidth);
     const cw = mw / 4;
     const rh = mh / 4;
     const mx = (cellWidth - mw) / 2;
-    const my = diagPad + 10 + stepLineH;
+    const my = Math.round(cellHeight - mh - 8);
 
     // ── Slot (0,0): mini-sheet schematic ──
     const ox0 = pasteBackCoverSlot.col * cellWidth;
     const oy0 = pasteBackCoverSlot.row * cellHeight;
 
     pdf.setFont(bodyFontFamily, 'normal');
-    pdf.setFontSize(7);
-    pdf.setTextColor(70, 70, 70);
-    rText(ox0, oy0, 'como dobrar e cortar:', diagPad, diagPad + stepLineH);
 
     // Sheet outline
     pdf.setDrawColor(190, 190, 190);
@@ -1270,14 +1362,56 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     rLine(ox0, oy0, mx,        my + 3 * rh,   mx + 3 * cw, my + 3 * rh);
     pdf.setLineDashPattern([], 0);
 
+    // Scissors icons at cut-line outer edges
+    {
+      const scPt = 9;                      // rendered size in PDF points
+      const scPx = scPt * 3;              // canvas pixels (3× for sharpness)
+      const scCanv = document.createElement('canvas');
+      scCanv.width = scPx;
+      scCanv.height = scPx;
+      const scCtx = scCanv.getContext('2d');
+      // Pre-rotate 180° so the icon appears right-side-up after the cell's physical flip
+      scCtx.translate(scPx / 2, scPx / 2);
+      scCtx.rotate(Math.PI);
+      scCtx.translate(-scPx / 2, -scPx / 2);
+      scCtx.font = `${Math.round(scPx * 0.82)}px serif`;
+      scCtx.fillStyle = '#aaaaaa';
+      scCtx.textBaseline = 'middle';
+      scCtx.textAlign = 'center';
+      scCtx.fillText('\u2702', scPx / 2, scPx / 2);
+      const scB64 = scCanv.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+
+      // Horizontally-flipped version for the right-edge cut (line 2)
+      const scFlipCanv = document.createElement('canvas');
+      scFlipCanv.width = scPx;
+      scFlipCanv.height = scPx;
+      const sfCtx = scFlipCanv.getContext('2d');
+      sfCtx.translate(scPx, 0);
+      sfCtx.scale(-1, 1);
+      sfCtx.drawImage(scCanv, 0, 0);
+      const scFlipB64 = scFlipCanv.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+
+      // [readerX, readerY, base64] — lines 1 & 3 at left outer edge, line 2 at right outer edge
+      const cutMarkers = [
+        [mx,        my + rh,         scB64],
+        [mx + mw,   my + 2 * rh,     scFlipB64],
+        [mx,        my + 3 * rh,     scB64],
+      ];
+      for (const [sx, sy, b64] of cutMarkers) {
+        const pdfX = ox0 + cellWidth  - sx - scPt / 2;
+        const pdfY = oy0 + cellHeight - sy - scPt / 2;
+        pdf.addImage(b64, 'PNG', pdfX, pdfY, scPt, scPt);
+      }
+    }
+
     // ── Cell labels ──
     // Normal-orientation cells (rows 1 & 3): rendered right-reading in the diagram.
     // Inverted-orientation cells (rows 0 & 2): rendered upside-down to match the
     // physical paper, using angle:0 (counteracts the slot's 180° flip).
-    pdf.setFontSize(5);
+    pdf.setFontSize(10);
     pdf.setFont(bodyFontFamily, 'normal');
     pdf.setTextColor(110, 110, 110);
-    const lblLH = 6;
+    const lblLH = 12;
     const normalCellLbls = [
       { r: 3, c: 0, lines: ['contra', 'capa'] },
       { r: 3, c: 1, lines: ['capa'] },
@@ -1289,8 +1423,15 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
       { r: 1, c: 3, lines: ['10'] },
     ];
     normalCellLbls.forEach(({ r, c, lines }) => {
+      const cx = mx + c * cw + cw / 2;
+      const cy = my + r * rh + rh / 2;
       lines.forEach((line, i) => {
-        rText(ox0, oy0, line, mx + c * cw + 2, my + r * rh + 5 + i * lblLH);
+        const ry = cy - ((lines.length - 1) * lblLH) / 2 + i * lblLH;
+        // align:'center' doesn't compose correctly with angle:180 in jsPDF —
+        // manually offset by half the text width so the visual centre lands at cx.
+        const tw = pdf.getTextWidth(line);
+        const [px, py] = T(ox0, oy0, cx - tw / 2, ry);
+        pdf.text(line, px, py, { angle: 180 });
       });
     });
     const invertedCellLbls = [
@@ -1304,31 +1445,15 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
       { r: 2, c: 3, lines: ['03'] },
     ];
     invertedCellLbls.forEach(({ r, c, lines }) => {
+      const cx = mx + c * cw + cw / 2;
+      const cy = my + r * rh + rh / 2;
       lines.forEach((line, i) => {
-        // Anchor at right edge of cell; text flows left (angle:0 in PDF space = leftward in reader space after flip).
-        const rx = mx + (c + 1) * cw - 2;
-        const ry = my + (r + 1) * rh - 5 - i * lblLH;
-        const [px, py] = T(ox0, oy0, rx, ry);
-        pdf.text(line, px, py);
+        const ry = cy - ((lines.length - 1) * lblLH) / 2 + i * lblLH;
+        const [px, py] = T(ox0, oy0, cx, ry);
+        pdf.text(line, px, py, { align: 'center' });
       });
     });
     pdf.setTextColor(110, 110, 110);
-
-    // Legend
-    const ly = my + mh + 11;
-    pdf.setFontSize(6);
-    pdf.setLineDashPattern([2, 2], 0);
-    pdf.setDrawColor(110, 110, 110);
-    pdf.setLineWidth(0.4);
-    rLine(ox0, oy0, diagPad, ly + 2, diagPad + 12, ly + 2);
-    rText(ox0, oy0, ' dobrar', diagPad + 12, ly);
-    pdf.setLineDashPattern([3, 1.5], 0);
-    pdf.setDrawColor(110, 110, 110);
-    pdf.setLineWidth(0.8);
-    rLine(ox0, oy0, diagPad, ly + 11, diagPad + 12, ly + 11);
-    pdf.setLineWidth(0.4);
-    rText(ox0, oy0, ' cortar', diagPad + 12, ly + 9);
-    pdf.setLineDashPattern([], 0);
 
     // ── Slot (0,1): step-by-step text ──
     const ox1 = pasteFrontCoverSlot.col * cellWidth;
@@ -1393,8 +1518,7 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
 
   const textWidth = cellWidth - cellPadding * 2;
   const maxLines = Math.max(1, Math.floor((cellHeight - cellPadding * 2) / lineHeight));
-  const isEmptyTraversalPlaceholder =
-    sourceText.trim() === ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT;
+  const isEmptyTraversalPlaceholder = sourceText.trim() === '';
 
   // ── Parse faixas and build pageOrder before drawing page numbers / decorative images ──
   const rawFaixaLines = sourceText.split('\n');
@@ -1526,8 +1650,31 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     }
   }
 
-  // Random page numbers (non-final pages): drawn here so they sit behind all poem text
-  if (showPageNumbers && pageNumberStyle === 'random' && !isEmptyTraversalPlaceholder) {
+  // Pre-compute decorative image assignments (page numbers + image placement must use the same set)
+  const faixaPageSet = new Set(pageOrder);
+  // Reserve 2 random odd pages as empty breathing room — but only from unclaimed odds,
+  // so multi-page faixas already using an odd page are never overridden.
+  const freeOddPages = [1, 3, 5, 7, 9, 11].filter((p) => !faixaPageSet.has(p));
+  const emptyOddPages = new Set(
+    [...freeOddPages].sort(() => Math.random() - 0.5).slice(0, 3)
+  );
+  // Free pages: any of 1-12 not claimed by a faixa and not reserved as empty, in random order
+  const decorativeFreePages = (!faixasOnAllPages && decorativeImageUrls && decorativeImageUrls.length > 0)
+    ? [...[1,2,3,4,5,6,7,8,9,10,11,12].filter(p => !faixaPageSet.has(p) && !emptyOddPages.has(p))].sort(() => Math.random() - 0.5)
+    : [];
+  // Each free page gets one image; cap at whichever list is shorter
+  const decorativeAssignedPages = decorativeFreePages.slice(0, decorativeImageUrls ? decorativeImageUrls.length : 0);
+  const decorativeAssignedImgs  = decorativeAssignedPages.length > 0
+    ? [...decorativeImageUrls].sort(() => Math.random() - 0.5).slice(0, decorativeAssignedPages.length)
+    : [];
+  // Pages that get images also get page numbers
+  for (const p of decorativeAssignedPages) randomPageNumbers.add(p);
+  // Empty odd pages also get page numbers
+  for (const p of emptyOddPages) randomPageNumbers.add(p);
+
+  // Random page numbers (non-final pages): drawn here so they sit behind all poem text.
+  // Also runs when traversal is empty but decorative images are assigned (images-only zine).
+  if (showPageNumbers && pageNumberStyle === 'random' && (!isEmptyTraversalPlaceholder || decorativeAssignedPages.length > 0 || emptyOddPages.size > 0)) {
     pdf.setFont(bodyFontFamily, 'italic');
     pdf.setFontSize(fontSize);
     pdf.setTextColor(210, 210, 210);
@@ -1542,8 +1689,8 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
       const pad = cellPadding + 4;
       const availW = cellWidth - pad * 2 - lw;
       const availH = cellHeight - pad * 2 - lh;
-      // Only place in the left or right third column; exclude middle column entirely.
-      const outerZones = [0, 3, 5, 8];
+      // Place in the four corners only.
+      const outerZones = [0, 2, 6, 8];
       const zone = outerZones[Math.floor(Math.random() * outerZones.length)];
       const zoneCol = zone % 3;
       const zoneRow = Math.floor(zone / 3);
@@ -1563,40 +1710,49 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
     pdf.setFont(bodyFontFamily, 'normal');
   }
 
-  // Decorative images on blank odd pages (only when faixas are on even pages only)
-  if (!faixasOnAllPages && decorativeImageUrls && decorativeImageUrls.length > 0) {
-    // Exclude odd pages claimed by multi-page faixas (they have poem text, not images)
-    const oddPages = [1, 3, 5, 7, 9, 11].filter((p) => !spreadFaixaOddPages.has(p));
-    // Shuffle odd pages and drop one to leave a blank page
-    const shuffledOdd = [...oddPages].sort(() => Math.random() - 0.5);
-    const selectedPages = shuffledOdd.slice(0, decorativeImageUrls.length);
-    // Shuffle images so assignment is random
-    const shuffledImgs = [...decorativeImageUrls].sort(() => Math.random() - 0.5);
-    const zoneW = cellWidth / 3;
-    const zoneH = cellHeight / 3;
-    for (let i = 0; i < selectedPages.length; i += 1) {
-      const pn = selectedPages[i];
-      const imgUrl = shuffledImgs[i];
+  // Decorative images — use the pre-computed page↔image assignments
+  if (decorativeAssignedPages.length > 0) {
+    for (let i = 0; i < decorativeAssignedPages.length; i += 1) {
+      const pn = decorativeAssignedPages[i];
+      const imgUrl = decorativeAssignedImgs[i];
       const slot = slotByPageNumber[pn];
       if (!slot) continue;
       try {
-        const imgBase64 = await getPdfImageBase64(imgUrl);
-        const zone = decorativeImagePosition === 'centered' ? 4 : Math.floor(Math.random() * 9);
-        const zoneCol = zone % 3;
-        const zoneRow = Math.floor(zone / 3);
+        const { base64, width, height } = await getPdfDecorativeImage(imgUrl);
         const ox = slot.col * cellWidth;
         const oy = slot.row * cellHeight;
-        if (!slot.rotate180) {
-          const x = ox + zoneCol * zoneW;
-          const y = oy + zoneRow * zoneH;
-          pdf.addImage(imgBase64, 'JPEG', x, y, zoneW, zoneH);
+        // Scale image to fit within 80% of the smaller cell dimension, preserving aspect ratio
+        const maxDim = Math.min(cellWidth, cellHeight) * 0.8;
+        const aspect = width / height;
+        let imgW, imgH;
+        if (aspect >= 1) {
+          imgW = maxDim;
+          imgH = maxDim / aspect;
         } else {
-          // In reader space zone (zoneCol, zoneRow) maps to mirrored PDF position
-          const pdfZoneCol = 2 - zoneCol;
-          const pdfZoneRow = 2 - zoneRow;
-          const x = ox + pdfZoneCol * zoneW;
-          const y = oy + pdfZoneRow * zoneH;
-          pdf.addImage(imgBase64, 'JPEG', x, y, zoneW, zoneH);
+          imgH = maxDim;
+          imgW = maxDim * aspect;
+        }
+        // Centre in cell
+        const ix = ox + (cellWidth - imgW) / 2;
+        const iy = oy + (cellHeight - imgH) / 2;
+        const imgSrc = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+        if (slot.rotate180) {
+          // Rotate 180° on canvas so the image reads correctly after folding
+          const scale = 3;
+          const srcImg = new Image();
+          await new Promise((res, rej) => { srcImg.onload = res; srcImg.onerror = rej; srcImg.src = imgSrc; });
+          const rotCanvas = document.createElement('canvas');
+          rotCanvas.width = Math.ceil(imgW * scale);
+          rotCanvas.height = Math.ceil(imgH * scale);
+          const rotCtx = rotCanvas.getContext('2d');
+          rotCtx.save();
+          rotCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+          rotCtx.rotate(Math.PI);
+          rotCtx.drawImage(srcImg, (-imgW * scale) / 2, (-imgH * scale) / 2, imgW * scale, imgH * scale);
+          rotCtx.restore();
+          pdf.addImage(rotCanvas.toDataURL('image/png'), 'PNG', ix, iy, imgW, imgH);
+        } else {
+          pdf.addImage(imgSrc, 'PNG', ix, iy, imgW, imgH);
         }
       } catch (err) {
         console.warn(`Decorative image failed to load: ${imgUrl}`, err);
@@ -2084,6 +2240,7 @@ export default function App() {
   const [activeId, setActiveId] = useState(rootId);
   const [showInfo, setShowInfo] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [rnboMuted, setRnboMuted] = useState(false);
   const [isAutoplay, setIsAutoplay] = useState(false);
   const [traversalRecord, setTraversalRecord] = useState(() => loadTraversalRecordFromSession());
   const [endOfFaixaStar, setEndOfFaixaStar] = useState(false);
@@ -2099,6 +2256,7 @@ export default function App() {
   const mainContainerRef = useRef(null);
   const rootCellRef = useRef(null);
   const activeAudioRef = useRef(new Set());
+  const snippetAudioCtxRef = useRef(null);
   const nodeRefsMap = useRef(new Map());
   const headerRef = useRef(null);
   const rnboApiRef = useRef(null); // RNBO runtime handles and cleanup refs
@@ -2121,60 +2279,79 @@ export default function App() {
           TimeNow,
         } = await import('@rnbo/js');
 
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        // 'playback' latency uses larger buffers — reduces underruns/crackling on complex DSP.
+        const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
         if (ctx.state === 'suspended') await ctx.resume();
 
         const resp = await fetch(RNBO_PATCH_PATH);
         const patchJSON = await resp.json();
         const device = await createDevice({ context: ctx, patcher: patchJSON });
 
-        // Connect to destination (may be a no-op for 0-channel node but doesn't hurt).
-        try {
+        // --- Version-specific initialization ---
+        let beatTimer = null;
+        let idleTimer = null;
+        let bangInport = 'click';
+
+        if (RNBO_VERSION === 'V3') {
+          // V3: patch is fully self-contained — connect and go, nothing else needed.
           device.node.connect(ctx.destination);
-        } catch (_) {
-          // no-op
+          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V3_VOLUME]));
+
+        } else if (RNBO_VERSION === 'V2') {
+          // V2: real stereo audio, transport driven externally from JS.
+          device.node.connect(ctx.destination);
+          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V2_VOLUME]));
+
+          const tempoBpm = 8;
+          device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
+          device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
+          device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
+
+          const beatClockStartAudio = ctx.currentTime;
+          beatTimer = window.setInterval(() => {
+            const elapsedMinutes = (ctx.currentTime - beatClockStartAudio) / 60;
+            const beatTime = elapsedMinutes * tempoBpm;
+            device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
+          }, 100);
+
+        } else {
+          // V1: MIDI-only (blip_test_01), transport driven externally, idle trigger fallback.
+          bangInport = 'in1';
+          let lastMidiAt = performance.now();
+          try { device.node.connect(ctx.destination); } catch (_) { /* no-op */ }
+          device.midiEvent.subscribe((ev) => {
+            if ((ev.status & 0xf0) === 0x90 && ev.data[2] > 0) {
+              lastMidiAt = performance.now();
+              playBlip(ctx, ev.data[1], ev.data[2]);
+            }
+          });
+
+          const tempoBpm = 8;
+          device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
+          device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
+          device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
+
+          const beatClockStartAudio = ctx.currentTime;
+          beatTimer = window.setInterval(() => {
+            const elapsedMinutes = (ctx.currentTime - beatClockStartAudio) / 60;
+            const beatTime = elapsedMinutes * tempoBpm;
+            device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
+          }, 100);
+
+          const scheduleIdleTrigger = () => {
+            const nextDelay = 1800 + Math.random() * 2600;
+            return window.setTimeout(() => {
+              if (performance.now() - lastMidiAt > 3500) {
+                device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
+                device.scheduleEvent(new MessageEvent(TimeNow, 'in1', undefined));
+              }
+              idleTimer = scheduleIdleTrigger();
+            }, nextDelay);
+          };
+          idleTimer = scheduleIdleTrigger();
         }
 
-        let lastMidiAt = performance.now();
-
-        // Convert MIDI note-ons to browser drone sounds.
-        device.midiEvent.subscribe((ev) => {
-          if ((ev.status & 0xf0) === 0x90 && ev.data[2] > 0) {
-            lastMidiAt = performance.now();
-            playBlip(ctx, ev.data[1], ev.data[2]);
-          }
-        });
-
-        const tempoBpm = 120;
-        device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
-        device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
-        device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
-
-        // Some MIDI-only RNBO patches need external beat updates in browser contexts.
-        const beatClockStart = performance.now();
-        const beatTimer = window.setInterval(() => {
-          const elapsedMinutes = (performance.now() - beatClockStart) / 60000;
-          const beatTime = elapsedMinutes * tempoBpm;
-          device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
-        }, 100);
-
-        // Idle fallback: if RNBO outputs no MIDI for a while, poke control/event inlets
-        // at random intervals so the ambient layer keeps moving without user clicks.
-        const scheduleIdleTrigger = () => {
-          const nextDelay = 1800 + Math.random() * 2600;
-          return window.setTimeout(() => {
-            const now = performance.now();
-            const idleMs = now - lastMidiAt;
-            if (idleMs > 3500) {
-              device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
-              device.scheduleEvent(new MessageEvent(TimeNow, 'in1', undefined));
-            }
-            idleTimer = scheduleIdleTrigger();
-          }, nextDelay);
-        };
-        let idleTimer = scheduleIdleTrigger();
-
-        // Keep AudioContext active with a silent oscillator in the graph.
+        // Keep AudioContext alive with a silent oscillator in the graph.
         const keepAlive = ctx.createGain();
         keepAlive.gain.value = 0;
         keepAlive.connect(ctx.destination);
@@ -2191,6 +2368,7 @@ export default function App() {
           silentOsc,
           beatTimer,
           idleTimer,
+          bangInport,
         };
       } catch (err) {
         console.error('[RNBO] init failed:', err);
@@ -2355,6 +2533,19 @@ export default function App() {
     const selectedVariant =
       playableVariants[Math.floor(Math.random() * playableVariants.length)];
     const audio = new Audio(selectedVariant.audioUrl);
+
+    // Route through a GainNode so SNIPPET_GAIN can exceed 1.0 for amplification.
+    if (!snippetAudioCtxRef.current) {
+      snippetAudioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const sCtx = snippetAudioCtxRef.current;
+    if (sCtx.state === 'suspended') sCtx.resume();
+    const source = sCtx.createMediaElementSource(audio);
+    const gain = sCtx.createGain();
+    gain.gain.value = SNIPPET_GAIN;
+    source.connect(gain);
+    gain.connect(sCtx.destination);
+
     activeAudioRef.current.add(audio);
     audio.addEventListener('ended', () => {
       activeAudioRef.current.delete(audio);
@@ -2386,8 +2577,7 @@ export default function App() {
 
   const handleDownloadTraversalPdf = async () => {
     const sourceText =
-      buildPdfTextFromFragments(traversalRecord.fragments).trim() ||
-      ZINE_EMPTY_TRAVERSAL_PLACEHOLDER_TEXT;
+      buildPdfTextFromFragments(traversalRecord.fragments).trim();
     await exportZinePdf({
       sourceText,
       fileName: USER_TRAVERSAL_PDF_FILE_NAME,
@@ -2505,7 +2695,7 @@ export default function App() {
     }
     const api = rnboApiRef.current;
     if (!api) return;
-    api.device.scheduleEvent(new api.MessageEvent(api.TimeNow, 'in1', undefined));
+    api.device.scheduleEvent(new api.MessageEvent(api.TimeNow, api.bangInport, [1]));
   };
 
   const handleNodeClick = (id, options = {}) => {
@@ -2580,7 +2770,7 @@ export default function App() {
             className={`p-2 md:p-3 rounded-full transition-all flex items-center gap-2 ${
               isAutoplay
                 ? 'text-[var(--color-green-bright)] bg-[var(--color-bg-accent)] shadow-[0_0_15px_var(--color-green-glow-soft)]'
-                : 'text-gray-400 bg-black/40 hover:text-white'
+                : 'text-[var(--color-green-muted)] bg-black/40 hover:bg-[var(--color-border)]'
             }`}
             title={isAutoplay ? 'Pausar Autoplay' : 'Iniciar Autoplay'}
           >
@@ -2600,10 +2790,25 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => {
+              const api = rnboApiRef.current;
+              if (api) rnboMuted ? api.ctx.resume() : api.ctx.suspend();
+              setRnboMuted(!rnboMuted);
+            }}
+            className={`p-2 md:p-3 rounded-full transition-all ${
+              rnboMuted ? 'text-gray-600 bg-black' : 'text-[var(--color-green-bright)] bg-[var(--color-bg-accent)]'
+            }`}
+            title={rnboMuted ? 'Ligar sintetizador' : 'Silenciar sintetizador'}
+          >
+            <Music size={16} className="md:w-6 md:h-6" />
+          </button>
+
+          <button
             onClick={() => setAudioEnabled(!audioEnabled)}
             className={`p-2 md:p-3 rounded-full transition-all ${
               audioEnabled ? 'text-[var(--color-green-bright)] bg-[var(--color-bg-accent)]' : 'text-gray-600 bg-black'
             }`}
+            title={audioEnabled ? 'Silenciar audio' : 'Ligar audio'}
           >
             {audioEnabled ? (
               <Volume2 size={16} className="md:w-6 md:h-6" />
