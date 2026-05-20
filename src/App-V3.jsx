@@ -16,45 +16,22 @@ import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
-// V1 = blip_test_01 (MIDI-only, transport-driven)
-// V2 = GRID_4 (stereo audio, transport-driven externally)
-// V3 = GRID_4 (stereo audio, fully self-contained — no transport driving)
-// V4 = StochasticGridSequencer_5 (stereo audio, self-managed transport; inports: startstop/bpm/volume/click)
-const RNBO_VERSION = 'V4'; // 'V1' | 'V2' | 'V3' | 'V4'
+const RNBO_VERSION = 'V5';
 const RNBO_PATCH_PATH = (() => {
-  if (RNBO_VERSION === 'V1') return `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`;
-  if (RNBO_VERSION === 'V4') return `${import.meta.env.BASE_URL}rnbo/StochasticGridSequencer_5.export.json`;
-  return `${import.meta.env.BASE_URL}rnbo/GRID_4.export.json`; // V2 + V3
+  return `${import.meta.env.BASE_URL}rnbo/StochasticGridSequencer_5_V5.export.json`; // V5
 })();
-const RNBO_V2_VOLUME = 0.6; // V2 initial volume (0–1).
-const RNBO_V3_VOLUME = 0.7; // V3 initial volume (0–1).
-const RNBO_V4_VOLUME = 0.7; // V4 initial volume (0–1); patch default is 1.
+const RNBO_V5_VOLUME = 0.8; // V5 initial volume (0–1); patch default is 1.
 const SNIPPET_GAIN = 2.5; // Gain applied to audio snippet playback (1.0 = original, >1 = amplify).
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
 const ENABLE_TRAVERSAL_CACHE = true;
 const AUTOPLAY_RECORDS_ZINE = true;
-const ZINE_PDF_STYLES = {
-  ZINE_V1: 'zine-v1',
-  ZINE_V2: 'zine-v2',
-  ZINE_V2_LORA: 'zine-v2-lora',
-  ZINE_V3: 'zine-v3',
-  RANDOM: 'random',
-};
-const AVAILABLE_ZINE_PDF_STYLES = [
-  ZINE_PDF_STYLES.ZINE_V1,
-  ZINE_PDF_STYLES.ZINE_V2,
-  ZINE_PDF_STYLES.ZINE_V2_LORA,
-  ZINE_PDF_STYLES.ZINE_V3,
-];
-const ACTIVE_ZINE_PDF_STYLE = ZINE_PDF_STYLES.ZINE_V3;
 const ENABLE_ZINE_GRID_DEBUG_LABELS = false;
 const ZINE_LORA_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-wght.ttf`;
 const ZINE_LORA_FONT_VFS_NAME = 'Lora-wght.ttf';
 const ZINE_LORA_ITALIC_FONT_URL = `${import.meta.env.BASE_URL}fonts/Lora-Italic-wght.ttf`;
 const ZINE_LORA_ITALIC_FONT_VFS_NAME = 'Lora-Italic-wght.ttf';
 const ZINE_LORA_FONT_FAMILY = 'Lora';
-const ZINE_COVER_IMAGE_URL = `${import.meta.env.BASE_URL}img/zine-img-V2.png`;
 const ZINE_V3_COVER_IMAGE_CYCLE = [
   `${import.meta.env.BASE_URL}img/zine-img-V2.png`,
   `${import.meta.env.BASE_URL}img/zine-img-V3.png`,
@@ -70,7 +47,6 @@ const ZINE_V3_COVER_IMAGE_CYCLE_STORAGE_KEY = 'faixas-zine-img-cycle-index';
 // When false, faixas are placed only on even pages (2,4,6,8,10,12),
 // one per spread. Set to true to restore the original all-pages behaviour.
 const FAIXAS_ON_ALL_PAGES = false;
-const IMAGE_POSITION_RANDOM = false;
 const IMAGE_POSITION_CENTERED = true;
 const ZINE_DECORATIVE_IMAGE_URLS = [
   `${import.meta.env.BASE_URL}img/pictoral-svg/Untitled%201-01.svg`,
@@ -160,29 +136,6 @@ const pdfFontBinaryCache = new Map();
  * Smoothly scrolls a container to (targetLeft, targetTop) with a cubic ease-in-out curve.
  * Returns a cancel function that stops the animation mid-flight.
  */
-/**
- * Trigger a short triangle-wave blip for an incoming MIDI note-on.
- */
-function playBlip(ctx, midiNote, velocity) {
-  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(freq, now);
-  // Slight pitch drift downward for a more organic drone feel
-  osc.frequency.linearRampToValueAtTime(freq * 0.97, now + 6);
-  const amp = (velocity / 127) * 0.075;
-  // Quick attack, very long decay
-  gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(amp, now + 0.08);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 8);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + 8.1);
-}
-
 function smoothScrollTo(container, targetLeft, targetTop, duration = 600) {
   const startLeft = container.scrollLeft;
   const startTop = container.scrollTop;
@@ -479,81 +432,7 @@ function persistTraversalRecord(record) {
 //BEGIN ZINE PDF GENERATION RELATED CODE
 //BEGIN ZINE PDF GENERATION RELATED CODE
 //BEGIN ZINE PDF GENERATION RELATED CODE
-//BEGIN ZINE PDF GENERATION RELATED CODE
-//BEGIN ZINE PDF GENERATION RELATED CODE
-//BEGIN ZINE PDF GENERATION RELATED CODE
-// Stable fallback generator: keep this strategy available while testing new zine styles.
-function generateZinePdfV1(sourceText, fileName) {
-  const pdf = new jsPDF({
-    orientation: 'landscape',
-    unit: 'pt',
-    format: 'a4',
-  });
-
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const marginX = 40;
-  const marginTop = 56;
-  const marginBottom = 56;
-  const columnCount = 5;
-  const columnGap = 24;
-  const columnWidth = (pageWidth - marginX * 2 - columnGap * (columnCount - 1)) / columnCount;
-  const maxY = pageHeight - marginBottom;
-  const baseLineHeight = 18;
-
-  pdf.setFont('times', 'normal');
-  pdf.setFontSize(13);
-
-  let currentColumn = 0;
-  let cursorY = marginTop;
-  const lines = sourceText.split('\n');
-
-  const getColumnX = () => marginX + currentColumn * (columnWidth + columnGap);
-
-  const advanceColumn = () => {
-    currentColumn += 1;
-
-    if (currentColumn >= columnCount) {
-      pdf.addPage();
-      currentColumn = 0;
-    }
-
-    cursorY = marginTop;
-  };
-
-  const ensureSpace = (requiredLines = 1) => {
-    const requiredHeight = baseLineHeight * Math.max(requiredLines - 1, 0);
-    if (cursorY + requiredHeight > maxY) {
-      advanceColumn();
-    }
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      ensureSpace(1);
-      cursorY += baseLineHeight;
-    } else {
-      const wrapped = pdf.splitTextToSize(line, columnWidth);
-
-      ensureSpace(wrapped.length);
-
-      for (const wrappedLine of wrapped) {
-        pdf.text(wrappedLine, getColumnX(), cursorY);
-        cursorY += baseLineHeight;
-      }
-
-      if (cursorY > maxY) {
-        advanceColumn();
-      }
-    }
-  }
-
-  pdf.save(fileName);
-}
-
-async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
+async function generateZineLayout(sourceText, fileName, options = {}) {
   const {
     bodyFontFamily = 'times',
     coverFontFamily = bodyFontFamily,
@@ -1347,35 +1226,6 @@ async function generateZinePdfV2Layout(sourceText, fileName, options = {}) {
   pdf.save(fileName);
 }
 
-function generateZinePdfV2(sourceText, fileName) {
-  return generateZinePdfV2Layout(sourceText, fileName);
-}
-
-async function generateZinePdfV2Lora(sourceText, fileName) {
-  return generateZinePdfV2Layout(sourceText, fileName, {
-    bodyFontFamily: ZINE_LORA_FONT_FAMILY,
-    coverFontFamily: ZINE_LORA_FONT_FAMILY,
-    backCoverFontFamily: ZINE_LORA_FONT_FAMILY,
-    pasteFontFamily: ZINE_LORA_FONT_FAMILY,
-    debugFontFamily: 'helvetica',
-    coverImageUrl: ZINE_COVER_IMAGE_URL,
-    setupPdf: async (pdf) => {
-      await registerPdfFont(pdf, {
-        url: ZINE_LORA_FONT_URL,
-        vfsFileName: ZINE_LORA_FONT_VFS_NAME,
-        fontFamily: ZINE_LORA_FONT_FAMILY,
-        fontStyle: 'normal',
-      });
-      await registerPdfFont(pdf, {
-        url: ZINE_LORA_ITALIC_FONT_URL,
-        vfsFileName: ZINE_LORA_ITALIC_FONT_VFS_NAME,
-        fontFamily: ZINE_LORA_FONT_FAMILY,
-        fontStyle: 'italic',
-      });
-    },
-  });
-}
-
 async function generateZinePdfV3Lora(sourceText, fileName) {
   let coverImageUrl;
   if (CYCLE_ZINE_IMG) {
@@ -1386,7 +1236,7 @@ async function generateZinePdfV3Lora(sourceText, fileName) {
   } else {
     coverImageUrl = ZINE_V3_COVER_IMAGE_STATIC;
   }
-  return generateZinePdfV2Layout(sourceText, fileName, {
+  return generateZineLayout(sourceText, fileName, {
     bodyFontFamily: ZINE_LORA_FONT_FAMILY,
     coverFontFamily: ZINE_LORA_FONT_FAMILY,
     backCoverFontFamily: ZINE_LORA_FONT_FAMILY,
@@ -1420,59 +1270,6 @@ async function generateZinePdfV3Lora(sourceText, fileName) {
   });
 }
 
-function resolveZinePdfStyle(stylePreference) {
-  if (stylePreference === ZINE_PDF_STYLES.RANDOM) {
-    const randomIndex = Math.floor(Math.random() * AVAILABLE_ZINE_PDF_STYLES.length);
-    return AVAILABLE_ZINE_PDF_STYLES[randomIndex] ?? ZINE_PDF_STYLES.ZINE_V1;
-  }
-
-  if (AVAILABLE_ZINE_PDF_STYLES.includes(stylePreference)) {
-    return stylePreference;
-  }
-
-  return ZINE_PDF_STYLES.ZINE_V1;
-}
-
-async function exportZinePdf({ sourceText, fileName, stylePreference }) {
-  const resolvedStyle = resolveZinePdfStyle(stylePreference);
-
-  switch (resolvedStyle) {
-    case ZINE_PDF_STYLES.ZINE_V3:
-      try {
-        await generateZinePdfV3Lora(sourceText, fileName);
-      } catch (error) {
-        console.warn('V3 zine export failed, falling back to zine-v2.', error);
-        await generateZinePdfV2(sourceText, fileName);
-      }
-      break;
-    case ZINE_PDF_STYLES.ZINE_V2_LORA:
-      try {
-        await generateZinePdfV2Lora(sourceText, fileName);
-      } catch (error) {
-        console.warn('Lora zine export failed, falling back to zine-v2.', error);
-        await generateZinePdfV2(sourceText, fileName);
-      }
-      break;
-    case ZINE_PDF_STYLES.ZINE_V2:
-      await generateZinePdfV2(sourceText, fileName);
-      break;
-    case ZINE_PDF_STYLES.ZINE_V1:
-    default:
-      generateZinePdfV1(sourceText, fileName);
-      break;
-  }
-
-  return resolvedStyle;
-}
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
-// ZINE RELATED CODE ENDS HERE
 // ZINE RELATED CODE ENDS HERE
 
 
@@ -1627,11 +1424,6 @@ function buildGraph(sequences, variantsByText) {
 }
 
 export default function App() {
-  /*
-  if (getAppMode() === 'curate') {
-    return <ManifestCuratorApp />;
-  }
-    */
 
   const [manifestEntries, setManifestEntries] = useState([]);
   const [datasetError, setDatasetError] = useState('');
@@ -1731,6 +1523,7 @@ export default function App() {
   const rnboInitializedRef = useRef(false);
   const initRNBORef = useRef(null);
 
+  //BEGIN RNBO-RELATED CODE
   // Initialize RNBO soundscape on first user interaction.
   useEffect(() => {
     const initRNBO = async () => {
@@ -1739,11 +1532,7 @@ export default function App() {
       try {
         const {
           createDevice,
-          BeatTimeEvent,
           MessageEvent,
-          TransportEvent,
-          TransportState,
-          TempoEvent,
           TimeNow,
         } = await import('@rnbo/js');
 
@@ -1755,101 +1544,17 @@ export default function App() {
         const patchJSON = await resp.json();
         const device = await createDevice({ context: ctx, patcher: patchJSON });
 
-        // --- Version-specific initialization ---
-        let beatTimer = null;
-        let idleTimer = null;
-        let bangInport = 'click';
-
-        if (RNBO_VERSION === 'V5') {
-          // V5: StochasticGridSequencer_5_V5 — same interface as V4, updated patch.
-          device.node.connect(ctx.destination);
-          device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
-          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V5_VOLUME]));
-
-        } else if (RNBO_VERSION === 'V4') {
-          // V4: StochasticGridSequencer_5 — self-managed transport and BPM.
-          // Just connect audio, start transport, set volume.
-          device.node.connect(ctx.destination);
-          device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
-          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V4_VOLUME]));
-
-        } else if (RNBO_VERSION === 'V3') {
-          // V3: patch is fully self-contained — connect and go, nothing else needed.
-          device.node.connect(ctx.destination);
-          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V3_VOLUME]));
-
-        } else if (RNBO_VERSION === 'V2') {
-          // V2: real stereo audio, transport driven externally from JS.
-          device.node.connect(ctx.destination);
-          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V2_VOLUME]));
-
-          const tempoBpm = 8;
-          device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
-          device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
-          device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
-
-          const beatClockStartAudio = ctx.currentTime;
-          beatTimer = window.setInterval(() => {
-            const elapsedMinutes = (ctx.currentTime - beatClockStartAudio) / 60;
-            const beatTime = elapsedMinutes * tempoBpm;
-            device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
-          }, 100);
-
-        } else {
-          // V1: MIDI-only (blip_test_01), transport driven externally, idle trigger fallback.
-          bangInport = 'in1';
-          let lastMidiAt = performance.now();
-          try { device.node.connect(ctx.destination); } catch (_) { /* no-op */ }
-          device.midiEvent.subscribe((ev) => {
-            if ((ev.status & 0xf0) === 0x90 && ev.data[2] > 0) {
-              lastMidiAt = performance.now();
-              playBlip(ctx, ev.data[1], ev.data[2]);
-            }
-          });
-
-          const tempoBpm = 8;
-          device.scheduleEvent(new TempoEvent(TimeNow, tempoBpm));
-          device.scheduleEvent(new BeatTimeEvent(TimeNow, 0));
-          device.scheduleEvent(new TransportEvent(TimeNow, TransportState.RUNNING));
-
-          const beatClockStartAudio = ctx.currentTime;
-          beatTimer = window.setInterval(() => {
-            const elapsedMinutes = (ctx.currentTime - beatClockStartAudio) / 60;
-            const beatTime = elapsedMinutes * tempoBpm;
-            device.scheduleEvent(new BeatTimeEvent(TimeNow, beatTime));
-          }, 100);
-
-          const scheduleIdleTrigger = () => {
-            const nextDelay = 1800 + Math.random() * 2600;
-            return window.setTimeout(() => {
-              if (performance.now() - lastMidiAt > 3500) {
-                device.scheduleEvent(new MessageEvent(TimeNow, 'toRNBO', undefined));
-                device.scheduleEvent(new MessageEvent(TimeNow, 'in1', undefined));
-              }
-              idleTimer = scheduleIdleTrigger();
-            }, nextDelay);
-          };
-          idleTimer = scheduleIdleTrigger();
-        }
-
-        // Keep AudioContext alive with a silent oscillator in the graph.
-        const keepAlive = ctx.createGain();
-        keepAlive.gain.value = 0;
-        keepAlive.connect(ctx.destination);
-        const silentOsc = ctx.createOscillator();
-        silentOsc.connect(keepAlive);
-        silentOsc.start();
+        // V5: StochasticGridSequencer_5_V5
+        device.node.connect(ctx.destination);
+        device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
+        device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V5_VOLUME]));
 
         rnboApiRef.current = {
           device,
           MessageEvent,
           TimeNow,
           ctx,
-          keepAlive,
-          silentOsc,
-          beatTimer,
-          idleTimer,
-          bangInport,
+          bangInport: 'click',
         };
       } catch (err) {
         console.error('[RNBO] init failed:', err);
@@ -1862,27 +1567,6 @@ export default function App() {
     return () => {
       initRNBORef.current = null;
       const api = rnboApiRef.current;
-      if (api?.beatTimer) {
-        window.clearInterval(api.beatTimer);
-      }
-      if (api?.idleTimer) {
-        window.clearTimeout(api.idleTimer);
-      }
-      if (api?.silentOsc) {
-        try {
-          api.silentOsc.stop();
-          api.silentOsc.disconnect();
-        } catch (_) {
-          // no-op
-        }
-      }
-      if (api?.keepAlive) {
-        try {
-          api.keepAlive.disconnect();
-        } catch (_) {
-          // no-op
-        }
-      }
       if (api?.device) {
         try {
           api.device.destroy();
@@ -1901,6 +1585,8 @@ export default function App() {
       rnboInitializedRef.current = false;
     };
   }, []);
+
+  //END OF RNBO-RELATED CODE
 
   const appendFragmentToTraversalRecord = (fragmentText) => {
     const normalizedText = String(fragmentText ?? '').trim();
@@ -2059,11 +1745,11 @@ export default function App() {
   const handleDownloadTraversalPdf = async () => {
     const sourceText =
       buildPdfTextFromFragments(traversalRecord.fragments).trim();
-    await exportZinePdf({
-      sourceText,
-      fileName: USER_TRAVERSAL_PDF_FILE_NAME,
-      stylePreference: ACTIVE_ZINE_PDF_STYLE,
-    });
+    try {
+      await generateZinePdfV3Lora(sourceText, USER_TRAVERSAL_PDF_FILE_NAME);
+    } catch (error) {
+      console.warn('[Zine] PDF export failed.', error);
+    }
   };
 
   // End-of-faixa star animation: after last word is clicked, fade to ✺ then back.

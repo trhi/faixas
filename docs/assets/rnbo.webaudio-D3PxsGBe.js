@@ -1,4 +1,4 @@
-import{g as getDefaultExportFromCjs}from"./index-BLagUaAK.js";function _mergeNamespaces(O,B){for(var R=0;R<B.length;R++){const m=B[R];if(typeof m!="string"&&!Array.isArray(m)){for(const P in m)if(P!=="default"&&!(P in O)){const T=Object.getOwnPropertyDescriptor(m,P);T&&Object.defineProperty(O,P,T.get?T:{enumerable:!0,get:()=>m[P]})}}}return Object.freeze(Object.defineProperty(O,Symbol.toStringTag,{value:"Module"}))}var rnbo_webaudio$1={exports:{}};/*!
+import{g as getDefaultExportFromCjs}from"./index-BegE6noZ.js";function _mergeNamespaces(O,B){for(var R=0;R<B.length;R++){const m=B[R];if(typeof m!="string"&&!Array.isArray(m)){for(const P in m)if(P!=="default"&&!(P in O)){const T=Object.getOwnPropertyDescriptor(m,P);T&&Object.defineProperty(O,P,T.get?T:{enumerable:!0,get:()=>m[P]})}}}return Object.freeze(Object.defineProperty(O,Symbol.toStringTag,{value:"Module"}))}var rnbo_webaudio$1={exports:{}};/*!
  * 
  * Copyright (c) 2022 Cycling '74
  *
