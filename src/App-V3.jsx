@@ -19,12 +19,16 @@ const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
 // V1 = blip_test_01 (MIDI-only, transport-driven)
 // V2 = GRID_4 (stereo audio, transport-driven externally)
 // V3 = GRID_4 (stereo audio, fully self-contained — no transport driving)
-const RNBO_VERSION = 'V3'; // 'V1' | 'V2' | 'V3'
-const RNBO_PATCH_PATH = RNBO_VERSION === 'V1'
-  ? `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`
-  : `${import.meta.env.BASE_URL}rnbo/GRID_4.export.json`;
-const RNBO_V2_VOLUME = 0.6; // V2 initial volume sent to 'volume' inport (0–1 linear).
-const RNBO_V3_VOLUME = 0.7; // V3 initial volume sent to 'volume' inport (0–1 linear).
+// V4 = StochasticGridSequencer_5 (stereo audio, self-managed transport; inports: startstop/bpm/volume/click)
+const RNBO_VERSION = 'V4'; // 'V1' | 'V2' | 'V3' | 'V4'
+const RNBO_PATCH_PATH = (() => {
+  if (RNBO_VERSION === 'V1') return `${import.meta.env.BASE_URL}rnbo/blip_test_01.export.json`;
+  if (RNBO_VERSION === 'V4') return `${import.meta.env.BASE_URL}rnbo/StochasticGridSequencer_5.export.json`;
+  return `${import.meta.env.BASE_URL}rnbo/GRID_4.export.json`; // V2 + V3
+})();
+const RNBO_V2_VOLUME = 0.6; // V2 initial volume (0–1).
+const RNBO_V3_VOLUME = 0.7; // V3 initial volume (0–1).
+const RNBO_V4_VOLUME = 0.7; // V4 initial volume (0–1); patch default is 1.
 const SNIPPET_GAIN = 2.5; // Gain applied to audio snippet playback (1.0 = original, >1 = amplify).
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
@@ -2292,7 +2296,20 @@ export default function App() {
         let idleTimer = null;
         let bangInport = 'click';
 
-        if (RNBO_VERSION === 'V3') {
+        if (RNBO_VERSION === 'V5') {
+          // V5: StochasticGridSequencer_5_V5 — same interface as V4, updated patch.
+          device.node.connect(ctx.destination);
+          device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
+          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V5_VOLUME]));
+
+        } else if (RNBO_VERSION === 'V4') {
+          // V4: StochasticGridSequencer_5 — self-managed transport and BPM.
+          // Just connect audio, start transport, set volume.
+          device.node.connect(ctx.destination);
+          device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
+          device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V4_VOLUME]));
+
+        } else if (RNBO_VERSION === 'V3') {
           // V3: patch is fully self-contained — connect and go, nothing else needed.
           device.node.connect(ctx.destination);
           device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V3_VOLUME]));
@@ -2976,6 +2993,7 @@ export default function App() {
                 palavra comum a vários pensamentos), o sistema escolhe um caminho ao acaso e no final, repete ao partir do eu, tracejando um trilho
                 infinito nos pensamentos.
               </p>
+              <p>Clique no "zine" para descarregar o teu percurso.</p>
               <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
                 Desenvolvido para{' '}
                 <a
@@ -2987,11 +3005,11 @@ export default function App() {
                   Balleteatro - Residências Artísticas Online - Março 2026 - Terhi Marttila
                 </a>
                 <br />
-                Música original por: Diogo Cocharro
+                Composição generativa e reativa por: Diogo Cocharro
                 <br />
-                Código: Gemini3, Claude Sonnet 4.5 e Terhi Marttila
+                Código: Gemini3, Claude Sonnet 4.6 e Terhi Marttila
                 <br />
-                Agradeçimentos: Jorge Gonçalves, Né Barros, Kati Rusanen, Watson Hartsoe, Jay David Bolter
+                Agradeçimentos: Jorge Gonçalves, Kati Rusanen, Sofia Santos, Watson Hartsoe, Jay David Bolter
               </p>
               <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
                 ➤ precisas de ajuda a dobrar o zine? - segue <a target="_blank" rel="noreferrer"
