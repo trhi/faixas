@@ -316,547 +316,6 @@ function getDatasetBaseUrl() {
   return new URL(DATASET_ROOT, window.location.href);
 }
 
-function getAppMode() {
-  if (typeof window === 'undefined') {
-    return 'graph';
-  }
-
-  const params = new URLSearchParams(window.location.search);
-  return params.get('mode') === 'curate' ? 'curate' : 'graph';
-}
-
-function normalizeEditableText(text) {
-  return String(text ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
-function tokenizeEditableText(text) {
-  const normalized = normalizeEditableText(text);
-  return normalized ? normalized.split(' ') : [];
-}
-
-function ManifestCuratorApp() {
-  const [manifestEntries, setManifestEntries] = useState([]);
-  const [datasetError, setDatasetError] = useState('');
-  const [isDatasetLoading, setIsDatasetLoading] = useState(true);
-  const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState('');
-  const [draftText, setDraftText] = useState('');
-  const [hiddenIds, setHiddenIds] = useState(() => new Set());
-  const [removedIds, setRemovedIds] = useState(() => new Set());
-  const [previewAudioId, setPreviewAudioId] = useState('');
-  const audioRef = useRef(null);
-  const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadDataset() {
-      try {
-        const response = await fetch(new URL('manifest.json', getDatasetBaseUrl()));
-        if (!response.ok) {
-          throw new Error(`Nao foi possivel carregar o manifest (${response.status}).`);
-        }
-
-        const payload = await response.json();
-        if (!Array.isArray(payload)) {
-          throw new Error('O manifest.json nao tem o formato esperado.');
-        }
-
-        if (!isMounted) return;
-        setManifestEntries(payload);
-        setDatasetError('');
-      } catch (error) {
-        if (!isMounted) return;
-        setManifestEntries([]);
-        setDatasetError(error instanceof Error ? error.message : 'Falha ao carregar o manifest.');
-      } finally {
-        if (isMounted) {
-          setIsDatasetLoading(false);
-        }
-      }
-    }
-
-    void loadDataset();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
-    };
-  }, []);
-
-  const entriesWithIds = useMemo(() => {
-    const datasetBaseUrl = getDatasetBaseUrl();
-    return manifestEntries.map((entry, index) => ({
-      ...entry,
-      _id: `${entry.recording_id}::${entry.sentence_id}::${entry.fragment_id}::${index}`,
-      audioUrl: new URL(entry.file, datasetBaseUrl).toString(),
-    }));
-  }, [manifestEntries]);
-
-  const selectedEntry = useMemo(
-    () => entriesWithIds.find((entry) => entry._id === selectedId) ?? null,
-    [entriesWithIds, selectedId],
-  );
-
-  useEffect(() => {
-    if (!selectedEntry) {
-      setDraftText('');
-      return;
-    }
-
-    setDraftText(selectedEntry.text ?? '');
-  }, [selectedEntry]);
-
-  const visibleEntries = useMemo(() => {
-    const normalizedQuery = normalizeEditableText(query);
-
-    return entriesWithIds.filter((entry) => {
-      if (removedIds.has(entry._id) || hiddenIds.has(entry._id)) {
-        return false;
-      }
-
-      if (!normalizedQuery) {
-        return true;
-      }
-
-      const haystack = [
-        entry.text,
-        entry.normalized_text,
-        entry.recording_id,
-        entry.file,
-      ]
-        .map((value) => normalizeEditableText(value))
-        .join(' ');
-
-      return haystack.includes(normalizedQuery);
-    });
-  }, [entriesWithIds, hiddenIds, query, removedIds]);
-
-  const curatedEntries = useMemo(() => {
-    return entriesWithIds
-      .filter((entry) => !removedIds.has(entry._id) && !hiddenIds.has(entry._id))
-      .map(({ _id, audioUrl, ...entry }) => entry);
-  }, [entriesWithIds, hiddenIds, removedIds]);
-
-  const stats = useMemo(() => ({
-    total: entriesWithIds.length,
-    visible: visibleEntries.length,
-    removed: removedIds.size,
-    hidden: hiddenIds.size,
-    curated: curatedEntries.length,
-  }), [curatedEntries.length, entriesWithIds.length, hiddenIds.size, removedIds.size, visibleEntries.length]);
-
-  const handleSelectEntry = (entry) => {
-    setSelectedId(entry._id);
-  };
-
-  const handleTogglePreview = async (entry) => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
-
-    if (previewAudioId === entry._id) {
-      audioRef.current.pause();
-      setPreviewAudioId('');
-      return;
-    }
-
-    audioRef.current.pause();
-    audioRef.current.src = entry.audioUrl;
-    try {
-      await audioRef.current.play();
-      setPreviewAudioId(entry._id);
-    } catch (_) {
-      setPreviewAudioId('');
-    }
-  };
-
-  const handleRemoveEntry = (entry) => {
-    setRemovedIds((prev) => {
-      const next = new Set(prev);
-      next.add(entry._id);
-      return next;
-    });
-
-    setHiddenIds((prev) => {
-      if (!prev.has(entry._id)) return prev;
-      const next = new Set(prev);
-      next.delete(entry._id);
-      return next;
-    });
-
-    if (selectedId === entry._id) {
-      setSelectedId('');
-    }
-    if (previewAudioId === entry._id && audioRef.current) {
-      audioRef.current.pause();
-      setPreviewAudioId('');
-    }
-  };
-
-  const handleHideEntry = (entry) => {
-    setHiddenIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(entry._id)) {
-        next.delete(entry._id);
-      } else {
-        next.add(entry._id);
-      }
-      return next;
-    });
-
-    if (selectedId === entry._id) {
-      setSelectedId('');
-    }
-  };
-
-  const handleApplyTextUpdate = () => {
-    if (!selectedEntry) return;
-
-    const normalizedText = normalizeEditableText(draftText);
-    if (!normalizedText) return;
-
-    const tokens = tokenizeEditableText(draftText);
-
-    setManifestEntries((prev) =>
-      prev.map((entry, index) => {
-        const entryId = `${entry.recording_id}::${entry.sentence_id}::${entry.fragment_id}::${index}`;
-        if (entryId !== selectedEntry._id) {
-          return entry;
-        }
-
-        return {
-          ...entry,
-          text: draftText.trim(),
-          normalized_text: normalizedText,
-          tokens,
-        };
-      }),
-    );
-  };
-
-  const handleResetManualChanges = () => {
-    setQuery('');
-    setSelectedId('');
-    setDraftText('');
-    setHiddenIds(new Set());
-    setRemovedIds(new Set());
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    setPreviewAudioId('');
-  };
-
-  const handleDownloadCuratedManifest = () => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
-
-    const payload = JSON.stringify(curatedEntries, null, 2);
-    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
-    const objectUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = 'manifest.curated.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(objectUrl);
-  };
-
-  const handleImportManifest = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const payload = JSON.parse(await file.text());
-      if (!Array.isArray(payload)) {
-        throw new Error('O ficheiro importado nao e uma lista de fragmentos.');
-      }
-
-      setManifestEntries(payload);
-      setDatasetError('');
-      setSelectedId('');
-      setDraftText('');
-      setHiddenIds(new Set());
-      setRemovedIds(new Set());
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setPreviewAudioId('');
-    } catch (error) {
-      setDatasetError(error instanceof Error ? error.message : 'Falha ao importar o ficheiro JSON.');
-    } finally {
-      event.target.value = '';
-    }
-  };
-
-  return (
-    <div
-      className="min-h-screen text-slate-100"
-      style={{
-        background:
-          'radial-gradient(circle at top left, rgba(72,255,194,0.12), transparent 28%), linear-gradient(180deg, #050806 0%, #08100d 48%, #040605 100%)',
-      }}
-    >
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="rounded-[28px] border border-white/10 bg-black/20 px-5 py-5 backdrop-blur-sm sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs uppercase tracking-[0.32em] text-[#48ffc2]">Modo de Curadoria</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                podar, ouvir e corrigir o manifest manualmente
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
-                Este e um editor local. Nada escreve no disco automaticamente. Faz a tua curadoria,
-                depois exporta um novo JSON e substitui manualmente o manifest final.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="text-slate-400">total</div>
-                <div className="mt-1 text-xl font-semibold text-white">{stats.total}</div>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="text-slate-400">visiveis</div>
-                <div className="mt-1 text-xl font-semibold text-white">{stats.visible}</div>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="text-slate-400">removidos</div>
-                <div className="mt-1 text-xl font-semibold text-white">{stats.removed}</div>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="text-slate-400">resultado</div>
-                <div className="mt-1 text-xl font-semibold text-white">{stats.curated}</div>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <section className="rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <label className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <Search size={18} className="text-slate-400" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="procurar por texto, normalized_text, ficheiro ou recording_id"
-                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
-              >
-                <FileUp size={16} />
-                importar JSON
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadCuratedManifest}
-                className="inline-flex items-center gap-2 rounded-2xl border border-[#48ffc2]/30 bg-[#48ffc2]/10 px-4 py-3 text-sm text-[#48ffc2] transition hover:bg-[#48ffc2]/15"
-              >
-                <Download size={16} />
-                exportar curated
-              </button>
-              <button
-                type="button"
-                onClick={handleResetManualChanges}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
-              >
-                <RotateCcw size={16} />
-                limpar sessao
-              </button>
-            </div>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={handleImportManifest}
-          />
-
-          {datasetError ? (
-            <div className="mt-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              {datasetError}
-            </div>
-          ) : null}
-        </section>
-
-        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <section className="min-h-[50vh] rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Fragmentos</h2>
-                <p className="text-sm text-slate-400">Seleciona um fragmento para ouvir ou editar.</p>
-              </div>
-              {isDatasetLoading ? <div className="text-sm text-slate-400">a carregar...</div> : null}
-            </div>
-
-            <div className="grid gap-3">
-              {visibleEntries.map((entry) => {
-                const isSelected = entry._id === selectedId;
-                const isPreviewing = entry._id === previewAudioId;
-
-                return (
-                  <article
-                    key={entry._id}
-                    className={`rounded-3xl border px-4 py-4 transition ${
-                      isSelected
-                        ? 'border-[#48ffc2]/40 bg-[#48ffc2]/10'
-                        : 'border-white/10 bg-white/5 hover:bg-white/10'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectEntry(entry)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-                          <span>{entry.recording_id}</span>
-                          <span>s{String(entry.sentence_id).padStart(3, '0')}</span>
-                          <span>f{String(entry.fragment_id).padStart(3, '0')}</span>
-                        </div>
-                        <div className="mt-3 text-base font-medium text-white sm:text-lg">{entry.text}</div>
-                        <div className="mt-2 text-sm text-slate-400">{entry.normalized_text}</div>
-                        <div className="mt-3 truncate text-xs text-slate-500">{entry.file}</div>
-                      </button>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePreview(entry)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white transition hover:bg-white/10"
-                        >
-                          {isPreviewing ? <Pause size={15} /> : <Play size={15} />}
-                          {isPreviewing ? 'parar' : 'ouvir'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleHideEntry(entry)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100 transition hover:bg-amber-300/15"
-                        >
-                          <Info size={15} />
-                          esconder
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveEntry(entry)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100 transition hover:bg-rose-300/15"
-                        >
-                          <X size={15} />
-                          remover
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-
-              {!isDatasetLoading && visibleEntries.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 px-4 py-8 text-sm text-slate-400">
-                  Nao ha fragmentos visiveis com os filtros atuais.
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-          <aside className="rounded-[28px] border border-white/10 bg-black/20 p-4 backdrop-blur-sm sm:p-5">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Editor</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Corrige o texto e exporta quando acabares. O ficheiro final continua a ser manual.
-              </p>
-            </div>
-
-            {selectedEntry ? (
-              <div className="mt-5 space-y-4">
-                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-400">selecionado</div>
-                  <div className="mt-2 text-lg font-medium text-white">{selectedEntry.text}</div>
-                  <div className="mt-1 text-sm text-slate-400">{selectedEntry.file}</div>
-                </div>
-
-                <label className="block">
-                  <div className="mb-2 text-sm text-slate-300">texto visivel</div>
-                  <textarea
-                    value={draftText}
-                    onChange={(event) => setDraftText(event.target.value)}
-                    rows={5}
-                    className="w-full rounded-3xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-                    placeholder="corrigir transcricao deste fragmento"
-                  />
-                </label>
-
-                <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">normalized_text</div>
-                    <div className="mt-1 break-words text-white">{normalizeEditableText(draftText) || 'vazio'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">tokens</div>
-                    <div className="mt-1 break-words text-white">
-                      {tokenizeEditableText(draftText).join(' | ') || 'vazio'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={handleApplyTextUpdate}
-                    className="rounded-2xl border border-[#48ffc2]/30 bg-[#48ffc2]/10 px-4 py-3 text-sm text-[#48ffc2] transition hover:bg-[#48ffc2]/15"
-                  >
-                    aplicar ao manifest carregado
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePreview(selectedEntry)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10"
-                  >
-                    {previewAudioId === selectedEntry._id ? <Pause size={15} /> : <Play size={15} />}
-                    ouvir fragmento
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-5 rounded-3xl border border-dashed border-white/10 bg-white/5 px-4 py-8 text-sm text-slate-400">
-                Seleciona um fragmento na coluna da esquerda.
-              </div>
-            )}
-
-            <div className="mt-6 rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-500">workflow</div>
-              <ol className="mt-3 list-decimal space-y-2 pl-5">
-                <li>Ouvir o fragmento.</li>
-                <li>Corrigir o texto ou remover o item.</li>
-                <li>Exportar `manifest.curated.json`.</li>
-                <li>Substituir manualmente `public/audio-library/current/manifest.json`.</li>
-              </ol>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function buildSentenceData(manifestEntries) {
   const datasetBaseUrl = getDatasetBaseUrl();
   const sortedEntries = [...manifestEntries].sort((a, b) => {
@@ -1014,6 +473,15 @@ function persistTraversalRecord(record) {
   }
 }
 
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
+//BEGIN ZINE PDF GENERATION RELATED CODE
 // Stable fallback generator: keep this strategy available while testing new zine styles.
 function generateZinePdfV1(sourceText, fileName) {
   const pdf = new jsPDF({
@@ -1996,7 +1464,19 @@ async function exportZinePdf({ sourceText, fileName, stylePreference }) {
 
   return resolvedStyle;
 }
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
+// ZINE RELATED CODE ENDS HERE
 
+
+//POPULATE GRID WITH FAIXAS
 function buildGraph(sequences, variantsByText) {
   const rootFragment = sequences[0]?.[0];
   const rootText = rootFragment?.text ?? 'eu';
@@ -2147,9 +1627,11 @@ function buildGraph(sequences, variantsByText) {
 }
 
 export default function App() {
+  /*
   if (getAppMode() === 'curate') {
     return <ManifestCuratorApp />;
   }
+    */
 
   const [manifestEntries, setManifestEntries] = useState([]);
   const [datasetError, setDatasetError] = useState('');
@@ -2726,6 +2208,7 @@ export default function App() {
     }
   };
 
+  //DEFINES ELEMENTS IN HEADER
   return (
     <div
       className="h-[100dvh] w-full bg-[var(--color-bg-main)] text-[var(--color-pink)] font-sans selection:bg-[var(--color-green-bright)] selection:text-white flex flex-col overflow-hidden"
@@ -2991,7 +2474,7 @@ export default function App() {
                 <br />
                 Código: Gemini3, Claude Sonnet 4.6 e Terhi Marttila
                 <br />
-                Agradeçimentos: Jorge Gonçalves, Kati Rusanen, Sofia Santos, Watson Hartsoe, Jay David Bolter
+                Agradeçimentos: Jorge Gonçalves, Kati Rusanen, Sofia Santos, Joana Pestana, Watson Hartsoe, Jay David Bolter
               </p>
               <p className="pt-3 md:pt-4 border-t border-[var(--color-border)] text-[10px] md:text-[12px] opacity-100">
                 ➤ precisas de ajuda a dobrar o zine? - segue <a target="_blank" rel="noreferrer"
