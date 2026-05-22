@@ -16,11 +16,11 @@ import { jsPDF } from 'jspdf';
 
 const MIN_GRID_SIZE = 15;
 const DATASET_ROOT = `${import.meta.env.BASE_URL}audio-library/current/`;
-const RNBO_VERSION = 'V5';
+const RNBO_VERSION = 'V6';
 const RNBO_PATCH_PATH = (() => {
-  return `${import.meta.env.BASE_URL}rnbo/StochasticGridSequencer_5_V5.export.json`; // V5
+  return `${import.meta.env.BASE_URL}rnbo/RastoDesgarrado_6.export.json`; // V6
 })();
-const RNBO_V5_VOLUME = 0.8; // V5 initial volume (0–1); patch default is 1.
+const RNBO_V6_VOLUME = 0.8; // V6 initial volume (0–1); patch default is 1.
 const SNIPPET_GAIN = 2.5; // Gain applied to audio snippet playback (1.0 = original, >1 = amplify).
 const USER_TRAVERSAL_STORAGE_KEY = 'faixas-user.json';
 const USER_TRAVERSAL_PDF_FILE_NAME = 'faixas-zine.pdf';
@@ -1547,7 +1547,7 @@ export default function App() {
         // V5: StochasticGridSequencer_5_V5
         device.node.connect(ctx.destination);
         device.scheduleEvent(new MessageEvent(TimeNow, 'startstop', [1]));
-        device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V5_VOLUME]));
+        device.scheduleEvent(new MessageEvent(TimeNow, 'volume', [RNBO_V6_VOLUME]));
 
         rnboApiRef.current = {
           device,
